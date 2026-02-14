@@ -1,0 +1,17 @@
+{
+  "lsp": {
+    "clangd": {
+      "binary": {
+        "arguments": [
+          "--compile-commands-dir=$ZED_WORKTREE_ROOT",
+          "--all-scopes-completion",
+          "--completion-style=detailed",
+          "--header-insertion=never",
+        ],
+      },
+      "initialization_options": {
+        "fallbackFlags": ["-std=c++20"],
+      },
+    },
+  },
+}

@@ -45,7 +45,11 @@ fi
 echo "--- Configuring CMake ---"
 cmake -S . -B "$BUILD_DIR" \
     -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake \
-    -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+    -DCMAKE_BUILD_TYPE="$BUILD_TYPE"\
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+# Create a symlink in the project root pointing to the debug compile commands
+ln -sf "$ZED_WORKTREE_ROOT/$BUILD_DIR/compile_commands.json" "$ZED_WORKTREE_ROOT/compile_commands.json"
 
 echo "--- Building ---"
 cmake --build "$BUILD_DIR" -j$(nproc)
