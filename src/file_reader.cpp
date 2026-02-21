@@ -1,9 +1,9 @@
 #include "file_reader.h"
-#include <array>
 #include <cstring>
 #include <fcntl.h>
 #include <format>
 #include <iostream>
+#include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
 
@@ -49,6 +49,14 @@ int FileReader::open_file(const filesystem::path &file_path) {
     cerr << format("Failed to open file {}, {}", path_string_, strerror(errno))
          << endl;
   }
+
+  // Set the last modified time
+  optional<struct stat> file_stat{get_fstat(file_fd)};
+  if (!file_stat.has_value()) {
+    return -1;
+  }
+
+  last_mod_time = file_stat.value().st_mtime;
   return file_fd;
 }
 
@@ -83,9 +91,7 @@ int FileReader::register_with_inotify() {
 
 void FileReader::run() {
   ssize_t events_bytes_read;
-  array<char, 4096> inotify_buf;
-  array<char, 4096> file_buf;
-  while (true) {
+  while (is_alive_) {
     // The following read() is NOT for the file that you want to read but
     // rather for the inotify list of events.
     events_bytes_read =
@@ -119,9 +125,11 @@ void FileReader::run() {
 
     // Processing inotify events
     struct inotify_event *event;
-    // sizeof (struct inotify event) would just the fix size of inotify event
-    // which does contain a field called "name" but it is empty in the struct
-    // definition. When an actual event is read, it puts the data in
+    bool is_modify_event_read{false};
+    EventHandlerStatus status = EventHandlerStatus::CONTINUE;
+    // sizeof (struct inotify event) would just the fix size of inotify
+    // event which does contain a field called "name" but it is empty in the
+    // struct definition. When an actual event is read, it puts the data in
     // event->name and hence we need to increment by fixed struct size and
     // event->len(this gives the length of this additional data including
     // nuls)
@@ -132,11 +140,27 @@ void FileReader::run() {
       // This  is a delibrate conversion of char* to inotify event struct
       // pointer. It IS unsafe. Didn't find any other way at the time.
       event = reinterpret_cast<inotify_event *>(ptr);
-      if ((event->mask & IN_MODIFY) != 0) {
-        cout << "File modified" << endl;
-        int data_bytes_read = read(file_fd, file_buf.data(), file_buf.size());
-        string_view data(file_buf.data(), data_bytes_read);
-        cout << format("data from file {}", data) << endl;
+      if ((event->mask & IN_MODIFY) != 0 && !is_modify_event_read) {
+        status = handle_file_modify();
+        is_modify_event_read = true;
+      } else if (event->mask & IN_ATTRIB) {
+        cout << "IN_ATTRIB event" << endl;
+      } else if (event->mask & IN_MOVE_SELF) {
+        cout << "IN_MOVE_SELF event" << endl;
+      } else if (event->mask & IN_DELETE_SELF) {
+        cout << "IN_DELETE_SELF event" << endl;
+      } else {
+        cout << format("Event mask {}, no implementation for this event yet.",
+                       event->mask)
+             << endl;
+      }
+
+      // Process the status
+      if (status == EventHandlerStatus::ERROR) {
+        // ToDo: May be retry something here instead of exiting.
+        return;
+      } else if (status == EventHandlerStatus::STOP) {
+        return;
       }
     }
 
@@ -147,6 +171,90 @@ void FileReader::run() {
   // shared message queue.
 }
 
+// optional<off_t> FileReader::get_file_size(int fd) {
+//   struct stat buf;
+//   if (fstat(fd, &buf) == -1) {
+//     cerr << format("Failed to get stat for fd {}, {}", fd, strerror(errno));
+//     return nullopt;
+//   }
+
+//   return buf.st_size;
+// }
+
+// optional<time_t> FileReader::get_last_modified_time(int fd) {
+//   struct stat buf;
+//   if (fstat(fd, &buf) == -1) {
+//     cerr << format("Failed to get stat for fd {}, {}", fd, strerror(errno));
+//     return nullopt;
+//   }
+
+//   return buf.st_mtime;
+// }
+
+optional<struct stat> FileReader::get_fstat(int fd) {
+  struct stat buf;
+  if (fstat(fd, &buf) == -1) {
+    cerr << format("Failed to get stat for fd {}, {}", fd, strerror(errno));
+    return nullopt;
+  }
+
+  return buf;
+}
+
+EventHandlerStatus FileReader::handle_file_modify() {
+  cout << "File modified" << endl;
+  // Check if file was truncated.
+  optional<struct stat> file_stat{get_fstat(file_fd)};
+  if (!file_stat.has_value()) {
+    return EventHandlerStatus::ERROR;
+  }
+
+  off_t file_size = file_stat.value().st_size;
+  time_t updated_last_mod_time = file_stat.value().st_mtime;
+
+  cout << format("{}, {}, {}, {}", read_offset, file_size, last_mod_time,
+                 updated_last_mod_time)
+       << endl;
+
+  // ToDo: Look for nanoseconds or inode based solution since any change faster
+  // than 1 sec won't be registered by st_mtime.
+  if (file_size < read_offset || updated_last_mod_time != last_mod_time) {
+    // File was truncated. Reload the file.
+    last_mod_time = updated_last_mod_time;
+    if (auto status = handle_file_truncated();
+        status != EventHandlerStatus::CONTINUE) {
+      return status;
+    };
+  }
+
+  int data_bytes_read = read(file_fd, file_buf.data(), file_buf.size());
+  string_view data(file_buf.data(), data_bytes_read);
+  cout << format("data from file {}", data) << endl;
+  read_offset += data_bytes_read;
+  return EventHandlerStatus::CONTINUE;
+}
+
+EventHandlerStatus FileReader::handle_file_truncated() {
+  cout << "File truncated" << endl;
+  off_t new_offset = jump_to_offset(file_fd, 0, SEEK_SET);
+  if (new_offset == -1) {
+    cout << "Failed to reset the read offset after truncation" << endl;
+    return EventHandlerStatus::STOP;
+  }
+
+  // Reset the file's reading offset
+  read_offset = new_offset;
+
+  return EventHandlerStatus::CONTINUE;
+}
+
 bool FileReader::is_alive() { return is_alive_.load(); }
 
-void FileReader::cleanup() { is_alive_ = false; }
+bool FileReader::stop() {
+  is_alive_ = false;
+  // ToDo: Call cleanup and free other resources if necessary. See if this is
+  // even needed in C++
+  return true;
+}
+
+void FileReader::cleanup() {}
