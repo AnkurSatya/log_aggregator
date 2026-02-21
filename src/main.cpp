@@ -1,4 +1,5 @@
 #include "file_reader.h"
+#include <format>
 #include <iostream>
 
 using namespace std;
@@ -6,5 +7,10 @@ int main() {
   filesystem::path file_path{"/home/ankur/projects/log_aggregator/test.log1"};
   FileReader file_reader{file_path};
 
-  cout << file_reader.is_alive() << endl;
+  if (file_reader.is_alive()) {
+    file_reader.run();
+  } else {
+    cerr << format("Reader could not be setup for file {}", file_path.string())
+         << endl;
+  }
 }
