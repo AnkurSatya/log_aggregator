@@ -56,7 +56,7 @@ cmake --build "$BUILD_DIR" -j$(nproc)
 
 if [ $? -eq 0 ]; then
     echo "--- Build Successful! Starting App... ---"
-    sudo "${BUILD_DIR}/log_aggregator"
+    "${BUILD_DIR}/log_aggregator"
 else
     echo "--- Build Failed. ---"
     exit 1

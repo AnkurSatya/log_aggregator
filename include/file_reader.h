@@ -22,10 +22,6 @@ private:
   off_t read_offset_{0};
   std::array<char, 4096> file_buf_;
 
-  // For Fanotify ---
-  int fanotify_fd_;
-  std::array<char, 4096> fanotify_buf_;
-
   // For Inotify ---
   int inotify_fd_{-1};
   std::array<char, 4096> inotify_buf_;
@@ -42,7 +38,6 @@ public:
   int open_file(const std::filesystem::path &file_path);
   off_t jump_to_offset(const int fd, const off_t offset, const int whence);
   std::optional<struct stat> get_fstat(int fd);
-  int register_with_fanotify();
 
   int register_with_inotify();
   std::optional<bool> is_file_truncated();
