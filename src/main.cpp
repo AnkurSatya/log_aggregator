@@ -4,7 +4,7 @@
 
 using namespace std;
 int main() {
-  filesystem::path file_path{"/home/ankur/projects/log_aggregator/test.log1"};
+  filesystem::path file_path{"/home/ankur/projects/log_aggregator/app.log"};
   FileReader file_reader{file_path};
 
   if (file_reader.is_alive()) {
