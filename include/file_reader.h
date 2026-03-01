@@ -24,6 +24,8 @@ private:
 
   // For Inotify ---
   int inotify_fd_{-1};
+  int inotify_file_watch_fd_{-1};
+  int inotify_dir_watch_fd_{-1};
   std::array<char, 4096> inotify_buf_;
   // Mask for inotify events to be listend to.
   uint32_t mask_ = IN_ALL_EVENTS;
@@ -43,12 +45,17 @@ public:
   std::optional<struct stat> get_stat(const std::string &filepath);
 
   int register_with_inotify();
+  int add_inotify_file_watch();
+  int add_inotify_dir_watch();
+
+  int read_new_data();
   std::optional<bool> is_file_truncated();
   EventHandlerStatus handle_file_modify();
   EventHandlerStatus handle_file_truncated();
-  EventHandlerStatus handle_file_rotated();
   EventHandlerStatus handle_file_attribute_changed();
+  EventHandlerStatus handle_file_rotated();
   void run();
   bool is_alive();
+  void cleanup();
   void stop();
 };
