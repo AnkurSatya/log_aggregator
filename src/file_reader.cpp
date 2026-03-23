@@ -8,56 +8,50 @@
 
 using namespace std;
 
-FileReader::FileReader(std::filesystem::path file_path)
-    : file_path_(std::move(file_path)) {
-  if (!filesystem::exists(file_path_)) {
-    cerr << format("File {} does not exist", file_path_.string()) << endl;
-    return;
-  }
-  path_string_ = file_path_.string();
-
-  if (!setup()) {
-    cerr << "Setup failed" << endl;
-    return;
-  }
-
-  // Set worker as 'alive'.
-  is_alive_ = true;
+FileReader::FileReader(FileInfo file_info) : file_info_(std::move(file_info)) {
+  path_string_ = file_info_.file_path.string();
 }
 
-bool FileReader::setup() {
-  // Close existing files,
-  cleanup();
-  // ToDo: Put somekind of timer to let the file be opened (if required)
-  // Open file
-  file_fd_ = open_file(file_path_);
-  if (file_fd_ == -1) {
-    return false;
+expected<FileReader, error_code>
+FileReader::open_file(std::filesystem::path file_path) {
+  if (!filesystem::exists(file_path)) {
+    return unexpected(make_error_code(errc::no_such_file_or_directory));
   }
 
-  // Set the file stats
-  optional<struct stat> new_file_stat{get_fstat(file_fd_)};
-  if (!new_file_stat) {
-    return false;
+  unique_fd fd{open(file_path.c_str(), O_RDONLY)};
+  if (fd.get() == -1) {
+    return unexpected(error_code(errno, system_category()));
   }
-  file_stat_ = new_file_stat.value();
+
+  // ToDo: Move setup() inside this function and read more about factory pattern
+  // logic.
+  // Set the file stats
+  optional<struct stat> new_file_stat{get_fstat(fd.get())};
+  if (!new_file_stat) {
+    return unexpected(error_code(errno, system_category()));
+  }
+  struct stat stat_ = new_file_stat.value();
 
   // Jump to the end of the file.
-  read_offset_ = jump_to_offset(file_fd_, 0, SEEK_END);
-  if (read_offset_ == -1) {
-    cerr << format("Could not move to the end of file {}", path_string_)
+  off_t read_offset = jump_to_offset(fd.get(), 0, SEEK_END);
+  if (read_offset == -1) {
+    cerr << format("Could not move to the end of file {}", file_path.string())
          << endl;
-    return false;
+    return unexpected(error_code(errno, system_category()));
   }
-  cout << format("Initial read offset {}", read_offset_) << endl;
+  cout << format("Initial read offset {}", read_offset) << endl;
 
-  // Inotify registration
-  if (register_with_inotify() == -1 || add_inotify_file_watch() == -1 ||
-      add_inotify_dir_watch() == -1) {
-    return false;
-  }
+  // // Inotify registration
+  // if (register_with_inotify() == -1 || add_inotify_file_watch() == -1 ||
+  //     add_inotify_dir_watch() == -1) {
+  // }
 
-  return true;
+  FileInfo info{.file_path = std::move(file_path),
+                .fd = std::move(fd),
+                .file_stat = std::move(stat_),
+                .read_offset = 0};
+
+  return FileReader(std::move(info));
 }
 
 optional<struct stat> FileReader::get_fstat(int fd) {
@@ -78,15 +72,6 @@ optional<struct stat> FileReader::get_stat(const string &filepath) {
     return nullopt;
   }
   return buf;
-}
-
-int FileReader::open_file(const filesystem::path &file_path) {
-  int fd{open(file_path_.c_str(), O_RDONLY)};
-  if (fd == -1) {
-    cerr << format("Failed to open file {}, {}", path_string_, strerror(errno))
-         << endl;
-  }
-  return fd;
 }
 
 off_t FileReader::jump_to_offset(const int fd, const off_t offset,
@@ -120,7 +105,7 @@ int FileReader::add_inotify_dir_watch() {
   // Add a watch on directory. This would be used for log rotation where the
   // existing file is moved and then re-created.
 
-  string parent_dir = file_path_.parent_path();
+  string parent_dir = file_info_.file_path.parent_path();
   // Close any existing watch
   if (inotify_dir_watch_fd_ != -1 &&
       inotify_rm_watch(inotify_fd_, inotify_dir_watch_fd_) == -1) {
@@ -150,7 +135,7 @@ int FileReader::add_inotify_file_watch() {
   }
 
   inotify_file_watch_fd_ =
-      inotify_add_watch(inotify_fd_, file_path_.c_str(), mask_);
+      inotify_add_watch(inotify_fd_, file_info_.file_path.c_str(), mask_);
   if (inotify_file_watch_fd_ == -1) {
     cerr << format("Failed to add Inotify file watch for {}, {}", path_string_,
                    strerror(errno))
@@ -161,15 +146,15 @@ int FileReader::add_inotify_file_watch() {
 
 int FileReader::read_new_data() {
   // Update file stat
-  if (auto current_file_stat{get_fstat(file_fd_)}) {
-    file_stat_ = current_file_stat.value();
+  if (auto current_file_stat{get_fstat(fd())}) {
+    file_info_.file_stat = current_file_stat.value();
   } else {
     return -1;
   }
-  size_t bytes_to_read = file_stat_.st_size - read_offset_;
+  size_t bytes_to_read = file_info_.file_stat.st_size - file_info_.read_offset;
   // Read and process the data.
   int data_bytes_read =
-      pread(file_fd_, file_buf_.data(), bytes_to_read, read_offset_);
+      pread(fd(), file_buf_.data(), bytes_to_read, file_info_.read_offset);
   if (data_bytes_read < 0) {
     return data_bytes_read;
   }
@@ -178,18 +163,18 @@ int FileReader::read_new_data() {
   cout << format("data from file {}", data) << endl;
 
   // Update members related to file metadata
-  read_offset_ += data_bytes_read - 1;
+  file_info_.read_offset += data_bytes_read - 1;
 
   return data_bytes_read;
 }
 
 optional<bool> FileReader::is_file_truncated() {
-  optional<struct stat> updated_file_stat{get_fstat(file_fd_)};
+  optional<struct stat> updated_file_stat{get_fstat(fd())};
   if (!updated_file_stat) {
     return nullopt;
   }
 
-  if (updated_file_stat->st_size < read_offset_) {
+  if (updated_file_stat->st_size < file_info_.read_offset) {
     cout << "File truncated" << endl;
     return true;
   }
@@ -197,10 +182,11 @@ optional<bool> FileReader::is_file_truncated() {
   off_t updated_file_size{updated_file_stat.value().st_size};
   time_t updated_last_mod_time{updated_file_stat.value().st_mtim.tv_nsec};
 
-  bool overwritten =
-      (updated_file_size == file_stat_.st_size &&
-       ((updated_file_stat->st_mtim.tv_sec != file_stat_.st_mtim.tv_sec) ||
-        (updated_file_stat->st_mtim.tv_nsec != file_stat_.st_mtim.tv_nsec)));
+  bool overwritten = (updated_file_size == file_info_.file_stat.st_size &&
+                      ((updated_file_stat->st_mtim.tv_sec !=
+                        file_info_.file_stat.st_mtim.tv_sec) ||
+                       (updated_file_stat->st_mtim.tv_nsec !=
+                        file_info_.file_stat.st_mtim.tv_nsec)));
 
   if (overwritten) {
     cout << "File overwritten" << endl;
@@ -219,14 +205,14 @@ EventHandlerStatus FileReader::handle_file_truncated() {
     return EventHandlerStatus::CONTINUE;
   }
 
-  off_t new_offset{jump_to_offset(file_fd_, 0, SEEK_SET)};
+  off_t new_offset{jump_to_offset(fd(), 0, SEEK_SET)};
   if (new_offset == -1) {
     cerr << "Failed to reset the read offset after truncation" << endl;
     return EventHandlerStatus::STOP;
   }
 
   // Reset the file's reading offset
-  read_offset_ = new_offset;
+  file_info_.read_offset = new_offset;
   return EventHandlerStatus::CONTINUE;
 }
 
@@ -237,23 +223,7 @@ EventHandlerStatus FileReader::handle_file_modify() {
     return status;
   };
 
-  size_t bytes_to_read = file_stat_.st_size - read_offset_;
-  // Read and process the data.
-  int data_bytes_read =
-      pread(file_fd_, file_buf_.data(), bytes_to_read, read_offset_);
-  if (data_bytes_read < 0) {
-    return EventHandlerStatus::CONTINUE;
-  }
-
-  string_view data(file_buf_.data(), data_bytes_read);
-  cout << format("data from file {}", data) << endl;
-
-  // Update members related to file metadata
-  read_offset_ += data_bytes_read - 1;
-  // Reset file stats
-  if (auto current_file_stat{get_fstat(file_fd_)}) {
-    file_stat_ = *current_file_stat;
-  } else {
+  if (read_new_data() == -1) {
     return EventHandlerStatus::ERROR;
   }
   return EventHandlerStatus::CONTINUE;
@@ -261,7 +231,7 @@ EventHandlerStatus FileReader::handle_file_modify() {
 
 EventHandlerStatus FileReader::handle_file_attribute_changed() {
   cout << "File attributes changed" << endl;
-  optional<struct stat> updated_file_stat{get_fstat(file_fd_)};
+  optional<struct stat> updated_file_stat{get_fstat(fd())};
   if (!updated_file_stat) {
     return EventHandlerStatus::ERROR;
   }
@@ -276,46 +246,33 @@ EventHandlerStatus FileReader::handle_file_attribute_changed() {
   return EventHandlerStatus::CONTINUE;
 }
 
-EventHandlerStatus FileReader::handle_file_rotated() {
-  // Reopen the file
-  if (file_fd_ != -1) {
-    close(file_fd_);
-  }
-  file_fd_ = open_file(file_path_);
-  if (file_fd_ == -1) {
-    return EventHandlerStatus::STOP;
-  }
+// EventHandlerStatus FileReader::handle_file_rotated() {
+//   // Reopen the file
+//   if (fd() != -1) {
+//     close(fd());
+//   }
+//   file_fd_ = open_file(file_path_);
+//   if (file_fd_ == -1) {
+//     return EventHandlerStatus::STOP;
+//   }
 
-  // Reset the Inotify file watch
-  if (add_inotify_file_watch() == -1) {
-    return EventHandlerStatus::STOP;
-  }
+//   // Reset the Inotify file watch
+//   if (add_inotify_file_watch() == -1) {
+//     return EventHandlerStatus::STOP;
+//   }
 
-  // Read all the data from the reopened file
-  read_offset_ = 0;
-  if (read_new_data() == -1) {
-    return EventHandlerStatus::STOP;
-  }
-  return EventHandlerStatus::CONTINUE;
-}
+//   // Read all the data from the reopened file
+//   read_offset_ = 0;
+//   if (read_new_data() == -1) {
+//     return EventHandlerStatus::STOP;
+//   }
+//   return EventHandlerStatus::CONTINUE;
+// }
 
 void FileReader::run() {
   ssize_t inotify_bytes_read;
-  while (is_alive_) {
-    // File rotation check
-    // ToDo
-    // 1. No need to make open_file generic. Set fd inside it. Same for register
-    // functions. -- DONE
-    // 2. Check if IN_CLOSE_WRITE event is a better option for detecting
-    // truncation.
-    // 3. Use IN_MOVE_SELF || IN_DELETE_SELF  to check if the file has been
-    // rotated and set a flag.
-    // 4. Use IN_CREATE and the flag set above to call the handle_rotation logic
-    // 5. Handle_rotation logic should also reset(inotify_rm_watch and
-    // inotify_add_watch) the Inotify watch on the log file. After opening the
-    // new file inside handle_rotation(), read all data from the new file and
-    // print. Remove and add a new watch after this.
-
+  // while (is_alive_) {
+  while (1) {
     // The following read() is for the file that reads Inotify events.
     inotify_bytes_read =
         read(inotify_fd_, inotify_buf_.data(), inotify_buf_.size());
@@ -326,7 +283,7 @@ void FileReader::run() {
         cerr << format("Failed to read file {}, {}", path_string_,
                        strerror(errno))
              << endl;
-        is_alive_ = false;
+        // is_alive_ = false;
         return;
       }
 
@@ -362,21 +319,19 @@ void FileReader::run() {
       // This  is a delibrate conversion of char* to inotify event struct
       // pointer. It IS unsafe. Didn't find any other way at the time.
       event = reinterpret_cast<inotify_event *>(ptr);
+
       if (event->mask & IN_MODIFY || event->mask & IN_CLOSE_WRITE) {
         status = handle_file_modify();
       }
 
       if (event->mask & IN_CREATE) {
-        cout << "File created " << event->name << endl;
-        if (event->name == file_path_.filename()) {
-          cout << format("File {} created", file_path_.filename().string())
+        if (event->name == file_info_.file_path.filename()) {
+          cout << format("File {} created",
+                         file_info_.file_path.filename().string())
                << endl;
-          status = handle_file_rotated();
+          // status = handle_file_rotated();
         }
       }
-      // if (event->mask & IN_CLOSE_WRITE) {
-      //   cout << "IN_CLOSE_WRITE event" << endl;
-      // }
 
       if (event->mask & IN_MOVE_SELF) {
         cout << "IN_MOVE_SELF event" << endl;
@@ -407,20 +362,17 @@ void FileReader::run() {
   }
 }
 
-bool FileReader::is_alive() { return is_alive_.load(); }
-void FileReader::stop() { is_alive_ = false; }
+// void FileReader::cleanup() {
+//   if (file_fd_ != -1) {
+//     close(file_fd_);
+//   }
 
-void FileReader::cleanup() {
-  if (file_fd_ != -1) {
-    close(file_fd_);
-  }
+//   if (inotify_fd_ != -1) {
+//     close(inotify_fd_);
+//   }
+// }
 
-  if (inotify_fd_ != -1) {
-    close(inotify_fd_);
-  }
-}
-
-FileReader::~FileReader() { cleanup(); }
+// FileReader::~FileReader() { cleanup(); }
 
 // ToDo: Use RAII wrapper class for file descriptors which would automatically
 // close the fds on exception or exit.

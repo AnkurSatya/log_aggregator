@@ -1,10 +1,11 @@
 #pragma once
 #include <array>
-#include <atomic>
+#include <expected>
 #include <filesystem>
 #include <optional>
 #include <sys/inotify.h>
 #include <sys/stat.h>
+#include <utils/unique_fd.h>
 
 enum class EventHandlerStatus {
   CONTINUE, // Everything is fine
@@ -12,14 +13,21 @@ enum class EventHandlerStatus {
   ERROR,    // An unexpected error occur
 };
 
+struct FileInfo {
+  std::filesystem::path file_path;
+  unique_fd fd;
+  struct stat file_stat;
+  off_t read_offset;
+};
+
 class FileReader {
 private:
+  explicit FileReader(FileInfo file_info);
+  int fd() const noexcept { return file_info_.fd.get(); }
+
   // For data file ---
-  std::filesystem::path file_path_;
+  FileInfo file_info_;
   std::string path_string_;
-  struct stat file_stat_;
-  int file_fd_{-1};
-  off_t read_offset_{0};
   std::array<char, 4096> file_buf_;
 
   // For Inotify ---
@@ -32,16 +40,20 @@ private:
   // uint32_t mask_ = IN_MODIFY | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF |
   //                  IN_OPEN | IN_CLOSE_WRITE | IN_CREATE;
 
-  // Useful for other threads to check if this thread is active or not.
-  std::atomic<bool> is_alive_{false};
-
 public:
-  FileReader(std::filesystem::path file_path);
-  ~FileReader();
-  bool setup();
-  int open_file(const std::filesystem::path &file_path);
-  off_t jump_to_offset(const int fd, const off_t offset, const int whence);
-  std::optional<struct stat> get_fstat(int fd);
+  ~FileReader() = default;
+  // Setting the constructors.
+  FileReader(FileReader &&other) noexcept = default; // Moving is allowed
+
+  FileReader &operator=(FileReader &&) = delete; // reassignment not allowed
+  FileReader(const FileReader &) = delete;       // copying not allowed
+
+  static std::expected<FileReader, std::error_code>
+  open_file(std::filesystem::path file_path);
+
+  static off_t jump_to_offset(const int fd, const off_t offset,
+                              const int whence);
+  static std::optional<struct stat> get_fstat(int fd);
   std::optional<struct stat> get_stat(const std::string &filepath);
 
   int register_with_inotify();
@@ -55,7 +67,6 @@ public:
   EventHandlerStatus handle_file_attribute_changed();
   EventHandlerStatus handle_file_rotated();
   void run();
-  bool is_alive();
   void cleanup();
   void stop();
 };
