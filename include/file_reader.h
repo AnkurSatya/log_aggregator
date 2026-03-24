@@ -44,19 +44,20 @@ public:
   ~FileReader() = default;
   // Setting the constructors.
   FileReader(FileReader &&other) noexcept = default; // Moving is allowed
-
-  FileReader &operator=(FileReader &&) = delete; // reassignment not allowed
-  FileReader(const FileReader &) = delete;       // copying not allowed
+  FileReader &operator=(FileReader &&) = delete;     // reassignment not allowed
+  FileReader(const FileReader &) = delete;           // copying not allowed
 
   static std::expected<FileReader, std::error_code>
   open_file(std::filesystem::path file_path);
 
-  static off_t jump_to_offset(const int fd, const off_t offset,
-                              const int whence);
-  static std::optional<struct stat> get_fstat(int fd);
-  std::optional<struct stat> get_stat(const std::string &filepath);
+  static std::expected<struct stat, std::error_code> get_fstat(int fd);
+  static std::expected<off_t, std::error_code>
+  jump_to_offset(const int fd, const off_t offset, const int whence);
 
-  int register_with_inotify();
+  static std::expected<struct stat, std::error_code>
+  get_stat(const std::string &filepath);
+
+  std::expected<unique_fd, std::error_code> register_with_inotify();
   int add_inotify_file_watch();
   int add_inotify_dir_watch();
 

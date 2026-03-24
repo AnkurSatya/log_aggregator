@@ -23,82 +23,66 @@ FileReader::open_file(std::filesystem::path file_path) {
     return unexpected(error_code(errno, system_category()));
   }
 
-  // ToDo: Move setup() inside this function and read more about factory pattern
-  // logic.
   // Set the file stats
-  optional<struct stat> new_file_stat{get_fstat(fd.get())};
-  if (!new_file_stat) {
-    return unexpected(error_code(errno, system_category()));
+  auto file_stat{get_fstat(fd.get())};
+  if (!file_stat) {
+    return unexpected(file_stat.error());
   }
-  struct stat stat_ = new_file_stat.value();
 
   // Jump to the end of the file.
-  off_t read_offset = jump_to_offset(fd.get(), 0, SEEK_END);
-  if (read_offset == -1) {
-    cerr << format("Could not move to the end of file {}", file_path.string())
-         << endl;
-    return unexpected(error_code(errno, system_category()));
+  auto read_offset = jump_to_offset(fd.get(), 0, SEEK_END);
+  if (!read_offset) {
+    return unexpected(read_offset.error());
   }
-  cout << format("Initial read offset {}", read_offset) << endl;
+  cout << format("Initial read offset {}", read_offset.value()) << endl;
+
+  // ToDo: Add inotify_fd and inotify_watch_fds (wrapped using unique_fd) in
+  // add_inotify_watch functions in the FileInfo struct.
 
   // // Inotify registration
   // if (register_with_inotify() == -1 || add_inotify_file_watch() == -1 ||
   //     add_inotify_dir_watch() == -1) {
+  //    return false;
   // }
 
   FileInfo info{.file_path = std::move(file_path),
                 .fd = std::move(fd),
-                .file_stat = std::move(stat_),
-                .read_offset = 0};
+                .file_stat = std::move(file_stat.value()),
+                .read_offset = read_offset.value()};
 
   return FileReader(std::move(info));
 }
 
-optional<struct stat> FileReader::get_fstat(int fd) {
+expected<struct stat, error_code> FileReader::get_fstat(int fd) {
   struct stat buf;
-  if (fstat(fd, &buf) == -1) {
-    cerr << format("Failed to get stat for fd {}, {}", fd, strerror(errno));
-    return nullopt;
-  }
-
-  return buf;
+  if (fstat(fd, &buf) == -1)
+    return unexpected(error_code(errno, system_category()));
+  return std::move(buf);
 }
 
-optional<struct stat> FileReader::get_stat(const string &filepath) {
-  struct stat buf;
-  if (stat(filepath.c_str(), &buf) == -1) {
-    cerr << format("Failed to get stat for file {}, {}", filepath,
-                   strerror(errno));
-    return nullopt;
-  }
-  return buf;
-}
-
-off_t FileReader::jump_to_offset(const int fd, const off_t offset,
-                                 const int whence) {
+expected<off_t, error_code>
+FileReader::jump_to_offset(const int fd, const off_t offset, const int whence) {
   off_t final_offset{lseek(fd, offset, whence)};
-  if (final_offset == -1) {
-    cerr << format("Failed to jump to offset {}", strerror(errno)) << endl;
-  }
+  if (final_offset == -1)
+    return unexpected(error_code(errno, system_category()));
   return final_offset;
 }
 
-int FileReader::register_with_inotify() {
+expected<struct stat, error_code> FileReader::get_stat(const string &filepath) {
+  struct stat buf;
+  if (stat(filepath.c_str(), &buf) == -1)
+    return unexpected(error_code(errno, system_category()));
+  return std::move(buf);
+}
+
+expected<unique_fd, error_code> FileReader::register_with_inotify() {
   // File descriptor for registration with inotify API so that
-  // you only wakes up when any of the events in the mask happens.
-
-  // Close any existing inotify
-  if (inotify_fd_ != -1 && close(inotify_fd_) == -1) {
-    cerr << format("Could not close existing Inotfiy fd, {}", strerror(errno))
-         << endl;
-    return -1;
+  // you only wake up when any of the events in the mask happens.
+  unique_fd fd{inotify_init1(IN_CLOEXEC | IN_NONBLOCK)};
+  if (fd.get() == -1) {
+    return unexpected(error_code(errno, system_category()));
   }
-
-  inotify_fd_ = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
-  if (inotify_fd_ == -1) {
-    cerr << format("Failed to register inotify {}", strerror(errno)) << endl;
-  }
-  return inotify_fd_;
+  return std::move(fd);
 }
 
 int FileReader::add_inotify_dir_watch() {
@@ -169,7 +153,7 @@ int FileReader::read_new_data() {
 }
 
 optional<bool> FileReader::is_file_truncated() {
-  optional<struct stat> updated_file_stat{get_fstat(fd())};
+  auto updated_file_stat{get_fstat(fd())};
   if (!updated_file_stat) {
     return nullopt;
   }
@@ -205,14 +189,14 @@ EventHandlerStatus FileReader::handle_file_truncated() {
     return EventHandlerStatus::CONTINUE;
   }
 
-  off_t new_offset{jump_to_offset(fd(), 0, SEEK_SET)};
-  if (new_offset == -1) {
+  auto new_offset{jump_to_offset(fd(), 0, SEEK_SET)};
+  if (!new_offset) {
     cerr << "Failed to reset the read offset after truncation" << endl;
     return EventHandlerStatus::STOP;
   }
 
   // Reset the file's reading offset
-  file_info_.read_offset = new_offset;
+  file_info_.read_offset = new_offset.value();
   return EventHandlerStatus::CONTINUE;
 }
 
@@ -231,7 +215,7 @@ EventHandlerStatus FileReader::handle_file_modify() {
 
 EventHandlerStatus FileReader::handle_file_attribute_changed() {
   cout << "File attributes changed" << endl;
-  optional<struct stat> updated_file_stat{get_fstat(fd())};
+  auto updated_file_stat{get_fstat(fd())};
   if (!updated_file_stat) {
     return EventHandlerStatus::ERROR;
   }
