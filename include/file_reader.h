@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <utils/unique_fd.h>
 
+template <typename T> using Result = std::expected<T, std::error_code>;
+
 enum class EventHandlerStatus {
   CONTINUE, // Everything is fine
   STOP,     // Stop processing events and exit gracefully
@@ -18,6 +20,7 @@ struct FileInfo {
   unique_fd fd;
   struct stat file_stat;
   off_t read_offset;
+  unique_fd inotify_fd;
 };
 
 class FileReader {
@@ -31,9 +34,6 @@ private:
   std::array<char, 4096> file_buf_;
 
   // For Inotify ---
-  int inotify_fd_{-1};
-  int inotify_file_watch_fd_{-1};
-  int inotify_dir_watch_fd_{-1};
   std::array<char, 4096> inotify_buf_;
   // Mask for inotify events to be listend to.
   uint32_t mask_ = IN_ALL_EVENTS;
@@ -47,19 +47,18 @@ public:
   FileReader &operator=(FileReader &&) = delete;     // reassignment not allowed
   FileReader(const FileReader &) = delete;           // copying not allowed
 
-  static std::expected<FileReader, std::error_code>
-  open_file(std::filesystem::path file_path);
+  static Result<FileReader> open_file(const std::filesystem::path &file_path);
+  static Result<struct stat> get_fstat(int fd);
+  static Result<off_t> jump_to_offset(int fd, off_t offset, int whence);
+  static Result<struct stat> get_stat(const std::filesystem::path &filepath);
+  static Result<unique_fd> register_with_inotify();
+  static Result<unique_fd>
+  add_inotify_file_watch(int inotify_fd, const std::filesystem::path &path,
+                         uint32_t mask);
 
-  static std::expected<struct stat, std::error_code> get_fstat(int fd);
-  static std::expected<off_t, std::error_code>
-  jump_to_offset(const int fd, const off_t offset, const int whence);
-
-  static std::expected<struct stat, std::error_code>
-  get_stat(const std::string &filepath);
-
-  std::expected<unique_fd, std::error_code> register_with_inotify();
-  int add_inotify_file_watch();
-  int add_inotify_dir_watch();
+  static Result<unique_fd>
+  add_inotify_dir_watch(int inotify_fd, const std::filesystem::path &dir,
+                        uint32_t mask);
 
   int read_new_data();
   std::optional<bool> is_file_truncated();

@@ -12,120 +12,96 @@ FileReader::FileReader(FileInfo file_info) : file_info_(std::move(file_info)) {
   path_string_ = file_info_.file_path.string();
 }
 
-expected<FileReader, error_code>
-FileReader::open_file(std::filesystem::path file_path) {
-  if (!filesystem::exists(file_path)) {
+Result<FileReader> FileReader::open_file(const filesystem::path &file_path) {
+  if (!filesystem::exists(file_path))
     return unexpected(make_error_code(errc::no_such_file_or_directory));
-  }
 
   unique_fd fd{open(file_path.c_str(), O_RDONLY)};
-  if (fd.get() == -1) {
+  if (fd.get() == -1)
     return unexpected(error_code(errno, system_category()));
-  }
 
   // Set the file stats
   auto file_stat{get_fstat(fd.get())};
-  if (!file_stat) {
+  if (!file_stat)
     return unexpected(file_stat.error());
-  }
 
   // Jump to the end of the file.
   auto read_offset = jump_to_offset(fd.get(), 0, SEEK_END);
-  if (!read_offset) {
+  if (!read_offset)
     return unexpected(read_offset.error());
-  }
   cout << format("Initial read offset {}", read_offset.value()) << endl;
 
-  // ToDo: Add inotify_fd and inotify_watch_fds (wrapped using unique_fd) in
-  // add_inotify_watch functions in the FileInfo struct.
-
   // // Inotify registration
-  // if (register_with_inotify() == -1 || add_inotify_file_watch() == -1 ||
-  //     add_inotify_dir_watch() == -1) {
-  //    return false;
-  // }
+  auto inotify_fd = register_with_inotify();
+  if (!inotify_fd)
+    return unexpected(inotify_fd.error());
+
+  auto inotify_dir_watch_fd = add_inotify_dir_watch(
+      inotify_fd.value().get(), file_path.parent_path(), IN_CREATE);
+  if (!inotify_dir_watch_fd)
+    return unexpected(inotify_dir_watch_fd.error());
+
+  auto inotify_file_watch_fd = add_inotify_file_watch(inotify_fd.value().get(),
+                                                      file_path, IN_ALL_EVENTS);
+  if (!inotify_file_watch_fd)
+    return unexpected(inotify_file_watch_fd.error());
 
   FileInfo info{.file_path = std::move(file_path),
                 .fd = std::move(fd),
                 .file_stat = std::move(file_stat.value()),
-                .read_offset = read_offset.value()};
+                .read_offset = read_offset.value(),
+                .inotify_fd = std::move(inotify_fd.value())};
 
   return FileReader(std::move(info));
 }
 
-expected<struct stat, error_code> FileReader::get_fstat(int fd) {
+Result<struct stat> FileReader::get_fstat(int fd) {
   struct stat buf;
   if (fstat(fd, &buf) == -1)
     return unexpected(error_code(errno, system_category()));
   return std::move(buf);
 }
 
-expected<off_t, error_code>
-FileReader::jump_to_offset(const int fd, const off_t offset, const int whence) {
+Result<off_t> FileReader::jump_to_offset(int fd, off_t offset, int whence) {
   off_t final_offset{lseek(fd, offset, whence)};
   if (final_offset == -1)
     return unexpected(error_code(errno, system_category()));
   return final_offset;
 }
 
-expected<struct stat, error_code> FileReader::get_stat(const string &filepath) {
+Result<struct stat> FileReader::get_stat(const filesystem::path &filepath) {
   struct stat buf;
   if (stat(filepath.c_str(), &buf) == -1)
     return unexpected(error_code(errno, system_category()));
   return std::move(buf);
 }
 
-expected<unique_fd, error_code> FileReader::register_with_inotify() {
+Result<unique_fd> FileReader::register_with_inotify() {
   // File descriptor for registration with inotify API so that
   // you only wake up when any of the events in the mask happens.
   unique_fd fd{inotify_init1(IN_CLOEXEC | IN_NONBLOCK)};
-  if (fd.get() == -1) {
+  if (fd.get() == -1)
     return unexpected(error_code(errno, system_category()));
-  }
   return std::move(fd);
 }
 
-int FileReader::add_inotify_dir_watch() {
-  // Add a watch on directory. This would be used for log rotation where the
-  // existing file is moved and then re-created.
-
-  string parent_dir = file_info_.file_path.parent_path();
-  // Close any existing watch
-  if (inotify_dir_watch_fd_ != -1 &&
-      inotify_rm_watch(inotify_fd_, inotify_dir_watch_fd_) == -1) {
-    cerr << format("Could not remove watch from directory {}, {}", parent_dir,
-                   strerror(errno))
-         << endl;
-    return -1;
-  }
-
-  inotify_dir_watch_fd_ =
-      inotify_add_watch(inotify_fd_, parent_dir.c_str(), IN_CREATE);
-  if (inotify_dir_watch_fd_ == -1) {
-    cerr << format("Failed to add Inotify directory watch for {}, {}",
-                   parent_dir, strerror(errno))
-         << endl;
-  }
-  return inotify_dir_watch_fd_;
+Result<unique_fd> FileReader::add_inotify_file_watch(
+    int inotify_fd, const std::filesystem::path &path, uint32_t mask) {
+  unique_fd fd{inotify_add_watch(inotify_fd, path.c_str(), mask)};
+  if (fd.get() == -1)
+    return unexpected(error_code(errno, system_category()));
+  return std::move(fd);
 }
 
-int FileReader::add_inotify_file_watch() {
-  if (inotify_file_watch_fd_ != -1 &&
-      inotify_rm_watch(inotify_fd_, inotify_file_watch_fd_) == -1) {
-    cerr << format("Could not remove watch from file{}, {}", path_string_,
-                   strerror(errno))
-         << endl;
-    return -1;
-  }
-
-  inotify_file_watch_fd_ =
-      inotify_add_watch(inotify_fd_, file_info_.file_path.c_str(), mask_);
-  if (inotify_file_watch_fd_ == -1) {
-    cerr << format("Failed to add Inotify file watch for {}, {}", path_string_,
-                   strerror(errno))
-         << endl;
-  }
-  return inotify_file_watch_fd_;
+Result<unique_fd> FileReader::add_inotify_dir_watch(int inotify_fd,
+                                                    const filesystem::path &dir,
+                                                    uint32_t mask) {
+  // Add a watch on directory. This would be used for log rotation where the
+  // existing file is moved and then re-created.
+  unique_fd fd{inotify_add_watch(inotify_fd, dir.c_str(), mask)};
+  if (fd.get() == -1)
+    return unexpected(error_code(errno, system_category()));
+  return std::move(fd);
 }
 
 int FileReader::read_new_data() {
@@ -253,110 +229,95 @@ EventHandlerStatus FileReader::handle_file_attribute_changed() {
 //   return EventHandlerStatus::CONTINUE;
 // }
 
-void FileReader::run() {
-  ssize_t inotify_bytes_read;
-  // while (is_alive_) {
-  while (1) {
-    // The following read() is for the file that reads Inotify events.
-    inotify_bytes_read =
-        read(inotify_fd_, inotify_buf_.data(), inotify_buf_.size());
+// void FileReader::run() {
+//   ssize_t inotify_bytes_read;
+//   // while (is_alive_) {
+//   while (1) {
+//     // The following read() is for the file that reads Inotify events.
+//     inotify_bytes_read =
+//         read(inotify_fd_, inotify_buf_.data(), inotify_buf_.size());
 
-    // Error handling for inotify fd
-    if (inotify_bytes_read <= 0) {
-      if (inotify_bytes_read == -1 && errno != EAGAIN) {
-        cerr << format("Failed to read file {}, {}", path_string_,
-                       strerror(errno))
-             << endl;
-        // is_alive_ = false;
-        return;
-      }
+//     // Error handling for inotify fd
+//     if (inotify_bytes_read <= 0) {
+//       if (inotify_bytes_read == -1 && errno != EAGAIN) {
+//         cerr << format("Failed to read file {}, {}", path_string_,
+//                        strerror(errno))
+//              << endl;
+//         // is_alive_ = false;
+//         return;
+//       }
 
-      if (errno == EOF) {
-        // This should not happen while reading inotify events unless the
-        // Inotify FD has been closed.
-        cerr << format("Inotify file descriptor closed for file {}, {}",
-                       path_string_, strerror(EOF))
-             << endl;
-        return;
-      }
+//       if (errno == EOF) {
+//         // This should not happen while reading inotify events unless the
+//         // Inotify FD has been closed.
+//         cerr << format("Inotify file descriptor closed for file {}, {}",
+//                        path_string_, strerror(EOF))
+//              << endl;
+//         return;
+//       }
 
-      if (errno == EAGAIN) {
-        // Not an error. It just means there are no inotify events right now.
-        this_thread::sleep_for(100ms);
-        continue;
-      }
-    }
+//       if (errno == EAGAIN) {
+//         // Not an error. It just means there are no inotify events right now.
+//         this_thread::sleep_for(100ms);
+//         continue;
+//       }
+//     }
 
-    // Processing inotify events
-    struct inotify_event *event;
-    EventHandlerStatus status{EventHandlerStatus::CONTINUE};
-    // sizeof (struct inotify event) would just give the fix size of inotify
-    // event which does contain a field called "name" but it is empty in the
-    // struct definition. When an actual event is read, it puts the data in
-    // event->name and hence we need to increment by fixed struct size and
-    // event->len(this gives the length of this additional data including
-    // nuls)
-    for (char *ptr = inotify_buf_.data();
-         ptr < inotify_buf_.data() + inotify_bytes_read;
-         ptr += sizeof(struct inotify_event) + event->len) {
+//     // Processing inotify events
+//     struct inotify_event *event;
+//     EventHandlerStatus status{EventHandlerStatus::CONTINUE};
+//     // sizeof (struct inotify event) would just give the fix size of inotify
+//     // event which does contain a field called "name" but it is empty in the
+//     // struct definition. When an actual event is read, it puts the data in
+//     // event->name and hence we need to increment by fixed struct size and
+//     // event->len(this gives the length of this additional data including
+//     // nuls)
+//     for (char *ptr = inotify_buf_.data();
+//          ptr < inotify_buf_.data() + inotify_bytes_read;
+//          ptr += sizeof(struct inotify_event) + event->len) {
 
-      // This  is a delibrate conversion of char* to inotify event struct
-      // pointer. It IS unsafe. Didn't find any other way at the time.
-      event = reinterpret_cast<inotify_event *>(ptr);
+//       // This  is a delibrate conversion of char* to inotify event struct
+//       // pointer. It IS unsafe. Didn't find any other way at the time.
+//       event = reinterpret_cast<inotify_event *>(ptr);
 
-      if (event->mask & IN_MODIFY || event->mask & IN_CLOSE_WRITE) {
-        status = handle_file_modify();
-      }
+//       if (event->mask & IN_MODIFY || event->mask & IN_CLOSE_WRITE) {
+//         status = handle_file_modify();
+//       }
 
-      if (event->mask & IN_CREATE) {
-        if (event->name == file_info_.file_path.filename()) {
-          cout << format("File {} created",
-                         file_info_.file_path.filename().string())
-               << endl;
-          // status = handle_file_rotated();
-        }
-      }
+//       if (event->mask & IN_CREATE) {
+//         if (event->name == file_info_.file_path.filename()) {
+//           cout << format("File {} created",
+//                          file_info_.file_path.filename().string())
+//                << endl;
+//           // status = handle_file_rotated();
+//         }
+//       }
 
-      if (event->mask & IN_MOVE_SELF) {
-        cout << "IN_MOVE_SELF event" << endl;
-      }
+//       if (event->mask & IN_MOVE_SELF) {
+//         cout << "IN_MOVE_SELF event" << endl;
+//       }
 
-      // For detecting if file has been deleted.
-      if (event->mask & IN_ATTRIB) {
-        if (auto status = handle_file_attribute_changed();
-            status != EventHandlerStatus::CONTINUE) {
-          return;
-        }
-      }
-      if (event->mask & IN_DELETE || event->mask & IN_DELETE_SELF) {
-        cout << "File deleted. Exiting ..." << endl;
-        return;
-      }
+//       // For detecting if file has been deleted.
+//       if (event->mask & IN_ATTRIB) {
+//         if (auto status = handle_file_attribute_changed();
+//             status != EventHandlerStatus::CONTINUE) {
+//           return;
+//         }
+//       }
+//       if (event->mask & IN_DELETE || event->mask & IN_DELETE_SELF) {
+//         cout << "File deleted. Exiting ..." << endl;
+//         return;
+//       }
 
-      // Process the status
-      if (status == EventHandlerStatus::ERROR) {
-        // ToDo: May be retry something here instead of exiting.
-        return;
-      } else if (status == EventHandlerStatus::STOP) {
-        return;
-      }
-    }
+//       // Process the status
+//       if (status == EventHandlerStatus::ERROR) {
+//         // ToDo: May be retry something here instead of exiting.
+//         return;
+//       } else if (status == EventHandlerStatus::STOP) {
+//         return;
+//       }
+//     }
 
-    this_thread::sleep_for(100ms);
-  }
-}
-
-// void FileReader::cleanup() {
-//   if (file_fd_ != -1) {
-//     close(file_fd_);
-//   }
-
-//   if (inotify_fd_ != -1) {
-//     close(inotify_fd_);
+//     this_thread::sleep_for(100ms);
 //   }
 // }
-
-// FileReader::~FileReader() { cleanup(); }
-
-// ToDo: Use RAII wrapper class for file descriptors which would automatically
-// close the fds on exception or exit.
