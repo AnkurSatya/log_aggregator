@@ -1,13 +1,11 @@
 #pragma once
 #include <array>
-#include <expected>
 #include <filesystem>
 #include <optional>
 #include <sys/inotify.h>
 #include <sys/stat.h>
+#include <utils/types.h>
 #include <utils/unique_fd.h>
-
-template <typename T> using Result = std::expected<T, std::error_code>;
 
 enum class EventHandlerStatus {
   CONTINUE, // Everything is fine
@@ -16,6 +14,7 @@ enum class EventHandlerStatus {
 };
 
 struct FileInfo {
+  const FileId file_id;
   std::filesystem::path file_path;
   unique_fd fd;
   struct stat file_stat;
@@ -47,7 +46,8 @@ public:
   FileReader &operator=(FileReader &&) = delete;     // reassignment not allowed
   FileReader(const FileReader &) = delete;           // copying not allowed
 
-  static Result<FileReader> open_file(const std::filesystem::path &file_path);
+  static Result<FileReader> open_file(const FileId file_id,
+                                      const std::filesystem::path &file_path);
   static Result<struct stat> get_fstat(int fd);
   static Result<off_t> jump_to_offset(int fd, off_t offset, int whence);
   static Result<struct stat> get_stat(const std::filesystem::path &filepath);

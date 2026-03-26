@@ -1,6 +1,6 @@
-#include "file_reader.h"
 #include <cstring>
 #include <fcntl.h>
+#include <file_reader.h>
 #include <format>
 #include <iostream>
 #include <thread>
@@ -12,7 +12,8 @@ FileReader::FileReader(FileInfo file_info) : file_info_(std::move(file_info)) {
   path_string_ = file_info_.file_path.string();
 }
 
-Result<FileReader> FileReader::open_file(const filesystem::path &file_path) {
+Result<FileReader> FileReader::open_file(const FileId file_id,
+                                         const filesystem::path &file_path) {
   if (!filesystem::exists(file_path))
     return unexpected(make_error_code(errc::no_such_file_or_directory));
 
@@ -46,7 +47,8 @@ Result<FileReader> FileReader::open_file(const filesystem::path &file_path) {
   if (!inotify_file_watch_fd)
     return unexpected(inotify_file_watch_fd.error());
 
-  FileInfo info{.file_path = std::move(file_path),
+  FileInfo info{.file_id = file_id,
+                .file_path = std::move(file_path),
                 .fd = std::move(fd),
                 .file_stat = std::move(file_stat.value()),
                 .read_offset = read_offset.value(),
@@ -229,95 +231,97 @@ EventHandlerStatus FileReader::handle_file_attribute_changed() {
 //   return EventHandlerStatus::CONTINUE;
 // }
 
-// void FileReader::run() {
-//   ssize_t inotify_bytes_read;
-//   // while (is_alive_) {
-//   while (1) {
-//     // The following read() is for the file that reads Inotify events.
-//     inotify_bytes_read =
-//         read(inotify_fd_, inotify_buf_.data(), inotify_buf_.size());
+// ToDo: Read Chapter 27
+// ToDo: Create a message queue in main.cpp and share it with FileReader so that
+// FileReader can add messages to it.
+void FileReader::run() {
+  ssize_t inotify_bytes_read;
+  while (1) {
+    // The following read() is for the file that reads Inotify events.
+    inotify_bytes_read = read(file_info_.inotify_fd.get(), inotify_buf_.data(),
+                              inotify_buf_.size());
 
-//     // Error handling for inotify fd
-//     if (inotify_bytes_read <= 0) {
-//       if (inotify_bytes_read == -1 && errno != EAGAIN) {
-//         cerr << format("Failed to read file {}, {}", path_string_,
-//                        strerror(errno))
-//              << endl;
-//         // is_alive_ = false;
-//         return;
-//       }
+    // ToDo: Create a failure event and add to the message queue.
+    //  Error handling for inotify fd
+    if (inotify_bytes_read <= 0) {
+      if (inotify_bytes_read == -1 && errno != EAGAIN) {
+        cerr << format("Failed to read file {}, {}", path_string_,
+                       strerror(errno))
+             << endl;
+        return;
+      }
 
-//       if (errno == EOF) {
-//         // This should not happen while reading inotify events unless the
-//         // Inotify FD has been closed.
-//         cerr << format("Inotify file descriptor closed for file {}, {}",
-//                        path_string_, strerror(EOF))
-//              << endl;
-//         return;
-//       }
+      if (errno == EOF) {
+        // This should not happen while reading inotify events unless the
+        // Inotify FD has been closed.
+        cerr << format("Inotify file descriptor closed for file {}, {}",
+                       path_string_, strerror(EOF))
+             << endl;
+        return;
+      }
 
-//       if (errno == EAGAIN) {
-//         // Not an error. It just means there are no inotify events right now.
-//         this_thread::sleep_for(100ms);
-//         continue;
-//       }
-//     }
+      if (errno == EAGAIN) {
+        // Not an error. It just means there are no inotify events right now.
+        this_thread::sleep_for(100ms);
+        continue;
+      }
+    }
 
-//     // Processing inotify events
-//     struct inotify_event *event;
-//     EventHandlerStatus status{EventHandlerStatus::CONTINUE};
-//     // sizeof (struct inotify event) would just give the fix size of inotify
-//     // event which does contain a field called "name" but it is empty in the
-//     // struct definition. When an actual event is read, it puts the data in
-//     // event->name and hence we need to increment by fixed struct size and
-//     // event->len(this gives the length of this additional data including
-//     // nuls)
-//     for (char *ptr = inotify_buf_.data();
-//          ptr < inotify_buf_.data() + inotify_bytes_read;
-//          ptr += sizeof(struct inotify_event) + event->len) {
+    // Processing inotify events
+    struct inotify_event *event;
+    EventHandlerStatus status{EventHandlerStatus::CONTINUE};
+    // sizeof (struct inotify event) would just give the fix size of inotify
+    // event which does contain a field called "name" but it is empty in the
+    // struct definition. When an actual event is read, it puts the data in
+    // event->name and hence we need to increment by fixed struct size and
+    // event->len(this gives the length of this additional data including
+    // nuls)
+    for (char *ptr = inotify_buf_.data();
+         ptr < inotify_buf_.data() + inotify_bytes_read;
+         ptr += sizeof(struct inotify_event) + event->len) {
 
-//       // This  is a delibrate conversion of char* to inotify event struct
-//       // pointer. It IS unsafe. Didn't find any other way at the time.
-//       event = reinterpret_cast<inotify_event *>(ptr);
+      // This  is a delibrate conversion of char* to inotify event struct
+      // pointer. It IS unsafe. Didn't find any other way at the time.
+      event = reinterpret_cast<inotify_event *>(ptr);
 
-//       if (event->mask & IN_MODIFY || event->mask & IN_CLOSE_WRITE) {
-//         status = handle_file_modify();
-//       }
+      if (event->mask & IN_MODIFY || event->mask & IN_CLOSE_WRITE) {
+        status = handle_file_modify();
+      }
 
-//       if (event->mask & IN_CREATE) {
-//         if (event->name == file_info_.file_path.filename()) {
-//           cout << format("File {} created",
-//                          file_info_.file_path.filename().string())
-//                << endl;
-//           // status = handle_file_rotated();
-//         }
-//       }
+      if (event->mask & IN_CREATE) {
+        if (event->name == file_info_.file_path.filename()) {
+          cout << format("File {} created",
+                         file_info_.file_path.filename().string())
+               << endl;
+          // status = handle_file_rotated();
+        }
+      }
 
-//       if (event->mask & IN_MOVE_SELF) {
-//         cout << "IN_MOVE_SELF event" << endl;
-//       }
+      if (event->mask & IN_MOVE_SELF) {
+        cout << "IN_MOVE_SELF event" << endl;
+      }
 
-//       // For detecting if file has been deleted.
-//       if (event->mask & IN_ATTRIB) {
-//         if (auto status = handle_file_attribute_changed();
-//             status != EventHandlerStatus::CONTINUE) {
-//           return;
-//         }
-//       }
-//       if (event->mask & IN_DELETE || event->mask & IN_DELETE_SELF) {
-//         cout << "File deleted. Exiting ..." << endl;
-//         return;
-//       }
+      // For detecting if file has been deleted.
+      if (event->mask & IN_ATTRIB) {
+        if (auto status = handle_file_attribute_changed();
+            status != EventHandlerStatus::CONTINUE) {
+          return;
+        }
+      }
+      if (event->mask & IN_DELETE || event->mask & IN_DELETE_SELF) {
+        cout << "File deleted. Exiting ..." << endl;
+        return;
+      }
 
-//       // Process the status
-//       if (status == EventHandlerStatus::ERROR) {
-//         // ToDo: May be retry something here instead of exiting.
-//         return;
-//       } else if (status == EventHandlerStatus::STOP) {
-//         return;
-//       }
-//     }
+      // Process the status
+      if (status == EventHandlerStatus::ERROR) {
+        // ToDo: May be retry something here instead of exiting.
+        return;
+      } else if (status == EventHandlerStatus::STOP) {
+        return;
+      }
+    }
 
-//     this_thread::sleep_for(100ms);
-//   }
-// }
+    this_thread::sleep_for(100ms);
+  }
+}
