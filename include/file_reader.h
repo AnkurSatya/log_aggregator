@@ -1,5 +1,4 @@
 #pragma once
-#include <array>
 #include <filesystem>
 #include <optional>
 #include <sys/inotify.h>
@@ -30,16 +29,13 @@ private:
   // For data file ---
   FileInfo file_info_;
   std::string path_string_;
-  std::array<char, 4096> file_buf_;
 
   // For Inotify ---
-  std::array<char, 4096> inotify_buf_;
   // Mask for inotify events to be listend to.
   uint32_t mask_ = IN_ALL_EVENTS;
-  // uint32_t mask_ = IN_MODIFY | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF |
-  //                  IN_OPEN | IN_CLOSE_WRITE | IN_CREATE;
 
 public:
+  static constexpr size_t BUF_CHUNK_SIZE = 4096;
   ~FileReader() = default;
   // Setting the constructors.
   FileReader(FileReader &&other) noexcept = default; // Moving is allowed
@@ -51,7 +47,7 @@ public:
   static Result<struct stat> get_fstat(int fd);
   static Result<off_t> jump_to_offset(int fd, off_t offset, int whence);
   static Result<struct stat> get_stat(const std::filesystem::path &filepath);
-  static Result<unique_fd> register_with_inotify();
+  static Result<unique_fd> register_with_inotify(uint32_t mask);
   static Result<unique_fd>
   add_inotify_file_watch(int inotify_fd, const std::filesystem::path &path,
                          uint32_t mask);

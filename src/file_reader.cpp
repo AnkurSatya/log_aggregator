@@ -33,7 +33,7 @@ Result<FileReader> FileReader::open_file(const FileId file_id,
   cout << format("Initial read offset {}", read_offset.value()) << endl;
 
   // // Inotify registration
-  auto inotify_fd = register_with_inotify();
+  auto inotify_fd = register_with_inotify(IN_CLOEXEC | IN_NONBLOCK);
   if (!inotify_fd)
     return unexpected(inotify_fd.error());
 
@@ -78,10 +78,10 @@ Result<struct stat> FileReader::get_stat(const filesystem::path &filepath) {
   return std::move(buf);
 }
 
-Result<unique_fd> FileReader::register_with_inotify() {
+Result<unique_fd> FileReader::register_with_inotify(uint32_t mask) {
   // File descriptor for registration with inotify API so that
   // you only wake up when any of the events in the mask happens.
-  unique_fd fd{inotify_init1(IN_CLOEXEC | IN_NONBLOCK)};
+  unique_fd fd{inotify_init1(mask)};
   if (fd.get() == -1)
     return unexpected(error_code(errno, system_category()));
   return std::move(fd);
@@ -107,6 +107,7 @@ Result<unique_fd> FileReader::add_inotify_dir_watch(int inotify_fd,
 }
 
 int FileReader::read_new_data() {
+  std::array<char, BUF_CHUNK_SIZE> file_buf;
   // Update file stat
   if (auto current_file_stat{get_fstat(fd())}) {
     file_info_.file_stat = current_file_stat.value();
@@ -116,12 +117,12 @@ int FileReader::read_new_data() {
   size_t bytes_to_read = file_info_.file_stat.st_size - file_info_.read_offset;
   // Read and process the data.
   int data_bytes_read =
-      pread(fd(), file_buf_.data(), bytes_to_read, file_info_.read_offset);
+      pread(fd(), file_buf.data(), bytes_to_read, file_info_.read_offset);
   if (data_bytes_read < 0) {
     return data_bytes_read;
   }
 
-  string_view data(file_buf_.data(), data_bytes_read);
+  string_view data(file_buf.data(), data_bytes_read);
   cout << format("data from file {}", data) << endl;
 
   // Update members related to file metadata
@@ -231,15 +232,16 @@ EventHandlerStatus FileReader::handle_file_attribute_changed() {
 //   return EventHandlerStatus::CONTINUE;
 // }
 
-// ToDo: Read Chapter 27
 // ToDo: Create a message queue in main.cpp and share it with FileReader so that
 // FileReader can add messages to it.
+
 void FileReader::run() {
+  std::array<char, BUF_CHUNK_SIZE> inotify_buf;
   ssize_t inotify_bytes_read;
   while (1) {
     // The following read() is for the file that reads Inotify events.
-    inotify_bytes_read = read(file_info_.inotify_fd.get(), inotify_buf_.data(),
-                              inotify_buf_.size());
+    inotify_bytes_read = read(file_info_.inotify_fd.get(), inotify_buf.data(),
+                              inotify_buf.size());
 
     // ToDo: Create a failure event and add to the message queue.
     //  Error handling for inotify fd
@@ -276,8 +278,8 @@ void FileReader::run() {
     // event->name and hence we need to increment by fixed struct size and
     // event->len(this gives the length of this additional data including
     // nuls)
-    for (char *ptr = inotify_buf_.data();
-         ptr < inotify_buf_.data() + inotify_bytes_read;
+    for (char *ptr = inotify_buf.data();
+         ptr < inotify_buf.data() + inotify_bytes_read;
          ptr += sizeof(struct inotify_event) + event->len) {
 
       // This  is a delibrate conversion of char* to inotify event struct

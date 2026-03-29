@@ -6,6 +6,7 @@ find_package(ZLIB REQUIRED)
 add_executable(log_aggregator
     src/main.cpp
     src/file_reader.cpp
+    src/file_manager.cpp
 )
 
 target_link_libraries(log_aggregator ZLIB::ZLIB)
