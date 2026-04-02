@@ -3,6 +3,7 @@
 #include <thread>
 #include <unordered_map>
 #include <utils/events.h>
+#include <utils/thread_safe_queue.h>
 #include <vector>
 
 class FileManager {
@@ -16,6 +17,7 @@ public:
 
 private:
   FileId next_file_id_{0};
+  ThreadSafeQueue<FileProcessingEvent> queue_;
   std::unordered_map<FileId, FileReader> file_readers_;
   std::unordered_map<FileId, std::jthread> threads_;
   std::vector<FileReader> files;

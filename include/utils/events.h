@@ -1,5 +1,6 @@
 #pragma once
 #include <utils/types.h>
+#include <variant>
 
 namespace Events {
 
@@ -17,3 +18,6 @@ struct FileClosed {
   FileId id;
 };
 } // namespace Events
+
+using FileProcessingEvent =
+    std::variant<Events::DataAvailable, Events::FileError, Events::FileClosed>;
