@@ -4,6 +4,7 @@
 #include <iostream>
 
 using namespace std;
+using namespace log_aggregator;
 
 void log_exception(const exception &e) {
   cerr << e.what() << endl;
@@ -19,9 +20,9 @@ void log_exception(const exception &e) {
 int main() {
   filesystem::path file_path{"/home/ankur/projects/log_aggregator/app.log"};
   FileManager file_manager;
-  Result<FileId> file_id = file_manager.add_file(file_path);
+  Result<FileId, Error> file_id = file_manager.add_file(file_path);
   if (!file_id)
-    cerr << format("Failed to open file {}: {}", file_path.string(),
-                   file_id.error().message())
+    cerr << format("Failed to open file {}: {}, {}", file_path.string(),
+                   file_id.error().code.message(), file_id.error().message)
          << endl;
 }

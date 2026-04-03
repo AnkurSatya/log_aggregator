@@ -12,8 +12,8 @@ FileReader::FileReader(FileInfo file_info) : file_info_(std::move(file_info)) {
   path_string_ = file_info_.file_path.string();
 }
 
-Result<FileReader> FileReader::open_file(const FileId file_id,
-                                         const filesystem::path &file_path) {
+Result<FileReader, std::error_code>
+FileReader::open_file(const FileId file_id, const filesystem::path &file_path) {
   if (!filesystem::exists(file_path))
     return unexpected(make_error_code(errc::no_such_file_or_directory));
 
@@ -57,28 +57,31 @@ Result<FileReader> FileReader::open_file(const FileId file_id,
   return FileReader(std::move(info));
 }
 
-Result<struct stat> FileReader::get_fstat(int fd) {
+Result<struct stat, std::error_code> FileReader::get_fstat(int fd) {
   struct stat buf;
   if (fstat(fd, &buf) == -1)
     return unexpected(error_code(errno, system_category()));
   return std::move(buf);
 }
 
-Result<off_t> FileReader::jump_to_offset(int fd, off_t offset, int whence) {
+Result<off_t, std::error_code> FileReader::jump_to_offset(int fd, off_t offset,
+                                                          int whence) {
   off_t final_offset{lseek(fd, offset, whence)};
   if (final_offset == -1)
     return unexpected(error_code(errno, system_category()));
   return final_offset;
 }
 
-Result<struct stat> FileReader::get_stat(const filesystem::path &filepath) {
+Result<struct stat, std::error_code>
+FileReader::get_stat(const filesystem::path &filepath) {
   struct stat buf;
   if (stat(filepath.c_str(), &buf) == -1)
     return unexpected(error_code(errno, system_category()));
   return std::move(buf);
 }
 
-Result<unique_fd> FileReader::register_with_inotify(uint32_t mask) {
+Result<unique_fd, std::error_code>
+FileReader::register_with_inotify(uint32_t mask) {
   // File descriptor for registration with inotify API so that
   // you only wake up when any of the events in the mask happens.
   unique_fd fd{inotify_init1(mask)};
@@ -87,7 +90,7 @@ Result<unique_fd> FileReader::register_with_inotify(uint32_t mask) {
   return std::move(fd);
 }
 
-Result<unique_fd> FileReader::add_inotify_file_watch(
+Result<unique_fd, std::error_code> FileReader::add_inotify_file_watch(
     int inotify_fd, const std::filesystem::path &path, uint32_t mask) {
   unique_fd fd{inotify_add_watch(inotify_fd, path.c_str(), mask)};
   if (fd.get() == -1)
@@ -95,9 +98,9 @@ Result<unique_fd> FileReader::add_inotify_file_watch(
   return std::move(fd);
 }
 
-Result<unique_fd> FileReader::add_inotify_dir_watch(int inotify_fd,
-                                                    const filesystem::path &dir,
-                                                    uint32_t mask) {
+Result<unique_fd, std::error_code>
+FileReader::add_inotify_dir_watch(int inotify_fd, const filesystem::path &dir,
+                                  uint32_t mask) {
   // Add a watch on directory. This would be used for log rotation where the
   // existing file is moved and then re-created.
   unique_fd fd{inotify_add_watch(inotify_fd, dir.c_str(), mask)};
@@ -235,10 +238,11 @@ EventHandlerStatus FileReader::handle_file_attribute_changed() {
 // ToDo: Create a message queue in main.cpp and share it with FileReader so that
 // FileReader can add messages to it.
 
-void FileReader::run() {
+void FileReader::run(std::stop_token token,
+                     ThreadSafeQueue<FileProcessingEvent> &event_queue) {
   std::array<char, BUF_CHUNK_SIZE> inotify_buf;
   ssize_t inotify_bytes_read;
-  while (1) {
+  while (!token.stop_requested()) {
     // The following read() is for the file that reads Inotify events.
     inotify_bytes_read = read(file_info_.inotify_fd.get(), inotify_buf.data(),
                               inotify_buf.size());

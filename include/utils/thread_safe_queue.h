@@ -18,7 +18,7 @@ public:
   T pop() {
     // Unique lock can release and acquire mutex as and when necessary unlike
     // lock_guard. condition_variable::wait needs to release and acquire
-    // repeatedly, hence we can't use lock_guard here.
+    // the mutex and lock_guard does not allow manual releasing of lock.
     std::unique_lock lock(mutex_);
     cv_.wait(&lock, [this] { return !queue_.empty(); });
     // queue pop does not return the value so the value should be read or moved

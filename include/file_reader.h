@@ -1,8 +1,11 @@
 #pragma once
 #include <filesystem>
 #include <optional>
+#include <stop_token>
 #include <sys/inotify.h>
 #include <sys/stat.h>
+#include <utils/events.h>
+#include <utils/thread_safe_queue.h>
 #include <utils/types.h>
 #include <utils/unique_fd.h>
 
@@ -42,17 +45,20 @@ public:
   FileReader &operator=(FileReader &&) = delete;     // reassignment not allowed
   FileReader(const FileReader &) = delete;           // copying not allowed
 
-  static Result<FileReader> open_file(const FileId file_id,
-                                      const std::filesystem::path &file_path);
-  static Result<struct stat> get_fstat(int fd);
-  static Result<off_t> jump_to_offset(int fd, off_t offset, int whence);
-  static Result<struct stat> get_stat(const std::filesystem::path &filepath);
-  static Result<unique_fd> register_with_inotify(uint32_t mask);
-  static Result<unique_fd>
+  static Result<FileReader, std::error_code>
+  open_file(const FileId file_id, const std::filesystem::path &file_path);
+  static Result<struct stat, std::error_code> get_fstat(int fd);
+  static Result<off_t, std::error_code> jump_to_offset(int fd, off_t offset,
+                                                       int whence);
+  static Result<struct stat, std::error_code>
+  get_stat(const std::filesystem::path &filepath);
+  static Result<unique_fd, std::error_code>
+  register_with_inotify(uint32_t mask);
+  static Result<unique_fd, std::error_code>
   add_inotify_file_watch(int inotify_fd, const std::filesystem::path &path,
                          uint32_t mask);
 
-  static Result<unique_fd>
+  static Result<unique_fd, std::error_code>
   add_inotify_dir_watch(int inotify_fd, const std::filesystem::path &dir,
                         uint32_t mask);
 
@@ -62,7 +68,7 @@ public:
   EventHandlerStatus handle_file_truncated();
   EventHandlerStatus handle_file_attribute_changed();
   EventHandlerStatus handle_file_rotated();
-  void run();
+  void run(std::stop_token, ThreadSafeQueue<FileProcessingEvent> &event_queue);
   void cleanup();
   void stop();
 };
