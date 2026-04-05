@@ -19,7 +19,13 @@ struct FileError {
 struct FileClosed {
   FileId id;
 };
+
+struct InotifyError {
+  FileId id;
+  std::error_code error;
+};
 } // namespace Events
 
 using FileProcessingEvent =
-    std::variant<Events::DataAvailable, Events::FileError, Events::FileClosed>;
+    std::variant<Events::DataAvailable, Events::FileError, Events::FileClosed,
+                 Events::InotifyError>;

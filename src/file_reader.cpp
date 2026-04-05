@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 using namespace std;
+using namespace Events;
 
 FileReader::FileReader(FileInfo file_info) noexcept
     : file_info_(std::move(file_info)) {
@@ -251,22 +252,25 @@ void FileReader::run(std::stop_token token,
     inotify_bytes_read = read(file_info_.inotify_fd.get(), inotify_buf.data(),
                               inotify_buf.size());
 
-    // ToDo: Create a failure event and add to the message queue.
     //  Error handling for inotify fd
     if (inotify_bytes_read <= 0) {
       if (inotify_bytes_read == -1 && errno != EAGAIN) {
-        cerr << format("Failed to read file {}, {}", path_string_,
-                       strerror(errno))
-             << endl;
+        InotifyError event{
+            .id = file_info_.file_id,
+            .error = error_code(errno, system_category()),
+        };
+        event_queue.push(std::move(event));
         return;
       }
 
       if (errno == EOF) {
         // This should not happen while reading inotify events unless the
         // Inotify FD has been closed.
-        cerr << format("Inotify file descriptor closed for file {}, {}",
-                       path_string_, strerror(EOF))
-             << endl;
+        InotifyError event{
+            .id = file_info_.file_id,
+            .error = error_code(errno, system_category()),
+        };
+        event_queue.push(std::move(event));
         return;
       }
 

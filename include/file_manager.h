@@ -5,7 +5,6 @@
 #include <unordered_map>
 #include <utils/events.h>
 #include <utils/thread_safe_queue.h>
-#include <vector>
 
 class FileManager {
 public:
@@ -22,8 +21,9 @@ private:
   // Shared mutex for read/write operations on maps.
   std::shared_mutex rw_mutex_;
   ThreadSafeQueue<FileProcessingEvent> event_queue_;
-  std::vector<FileReader> files;
   std::jthread event_processor_thread_;
-  std::unordered_map<FileId, FileReader> file_readers_;
+  // Storing shared_ptr instead of the object itself because it is required
+  // independently at two places: in process_file() and remove_file().
+  std::unordered_map<FileId, std::shared_ptr<FileReader>> file_readers_;
   std::unordered_map<FileId, std::jthread> file_reader_threads_;
 };
