@@ -16,7 +16,7 @@ enum class EventHandlerStatus {
 };
 
 struct FileInfo {
-  const FileId file_id;
+  FileId file_id;
   std::filesystem::path file_path;
   unique_fd fd;
   struct stat file_stat;
@@ -26,7 +26,7 @@ struct FileInfo {
 
 class FileReader {
 private:
-  explicit FileReader(FileInfo file_info);
+  explicit FileReader(FileInfo file_info) noexcept;
   int fd() const noexcept { return file_info_.fd.get(); }
 
   // For data file ---
@@ -42,11 +42,14 @@ public:
   ~FileReader() = default;
   // Setting the constructors.
   FileReader(FileReader &&other) noexcept = default; // Moving is allowed
-  FileReader &operator=(FileReader &&) = delete;     // reassignment not allowed
-  FileReader(const FileReader &) = delete;           // copying not allowed
+  FileReader &
+  operator=(FileReader &&other) = delete;  // reassignment not allowed
+  FileReader(const FileReader &) = delete; // copying not allowed
+  FileReader &operator=(const FileReader &) = delete;
 
+  // static Result<FileReader, std::error_code>
   static Result<FileReader, std::error_code>
-  open_file(const FileId file_id, const std::filesystem::path &file_path);
+  open_file(const FileId file_id, const std::filesystem::path file_path);
   static Result<struct stat, std::error_code> get_fstat(int fd);
   static Result<off_t, std::error_code> jump_to_offset(int fd, off_t offset,
                                                        int whence);
@@ -54,11 +57,12 @@ public:
   get_stat(const std::filesystem::path &filepath);
   static Result<unique_fd, std::error_code>
   register_with_inotify(uint32_t mask);
-  static Result<unique_fd, std::error_code>
+
+  static Result<int, std::error_code>
   add_inotify_file_watch(int inotify_fd, const std::filesystem::path &path,
                          uint32_t mask);
 
-  static Result<unique_fd, std::error_code>
+  static Result<int, std::error_code>
   add_inotify_dir_watch(int inotify_fd, const std::filesystem::path &dir,
                         uint32_t mask);
 

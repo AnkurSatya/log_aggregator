@@ -8,12 +8,13 @@
 
 using namespace std;
 
-FileReader::FileReader(FileInfo file_info) : file_info_(std::move(file_info)) {
+FileReader::FileReader(FileInfo file_info) noexcept
+    : file_info_(std::move(file_info)) {
   path_string_ = file_info_.file_path.string();
 }
 
 Result<FileReader, std::error_code>
-FileReader::open_file(const FileId file_id, const filesystem::path &file_path) {
+FileReader::open_file(const FileId file_id, const filesystem::path file_path) {
   if (!filesystem::exists(file_path))
     return unexpected(make_error_code(errc::no_such_file_or_directory));
 
@@ -90,23 +91,29 @@ FileReader::register_with_inotify(uint32_t mask) {
   return std::move(fd);
 }
 
-Result<unique_fd, std::error_code> FileReader::add_inotify_file_watch(
+Result<int, std::error_code> FileReader::add_inotify_file_watch(
     int inotify_fd, const std::filesystem::path &path, uint32_t mask) {
-  unique_fd fd{inotify_add_watch(inotify_fd, path.c_str(), mask)};
-  if (fd.get() == -1)
+  // Do not use a RAII wrapper for storing watch fd returned by
+  // inotify_add_watch since 'watch fd' is not same as 'file fd'. Watch fd here
+  // would be an increasing positive number (on successful addition of watch). A
+  // case where treating it like fd would lead to a bug.
+  // If watch fd == 1 and you wrap it inside a RAII, the RAII on destructor
+  // would call close(1), which leads to std::cout stream getting closed.
+  int fd{inotify_add_watch(inotify_fd, path.c_str(), mask)};
+  if (fd == -1)
     return unexpected(error_code(errno, system_category()));
-  return std::move(fd);
+  return fd;
 }
 
-Result<unique_fd, std::error_code>
+Result<int, std::error_code>
 FileReader::add_inotify_dir_watch(int inotify_fd, const filesystem::path &dir,
                                   uint32_t mask) {
   // Add a watch on directory. This would be used for log rotation where the
   // existing file is moved and then re-created.
-  unique_fd fd{inotify_add_watch(inotify_fd, dir.c_str(), mask)};
-  if (fd.get() == -1)
+  int fd{inotify_add_watch(inotify_fd, dir.c_str(), mask)};
+  if (fd == -1)
     return unexpected(error_code(errno, system_category()));
-  return std::move(fd);
+  return fd;
 }
 
 int FileReader::read_new_data() {
@@ -234,9 +241,6 @@ EventHandlerStatus FileReader::handle_file_attribute_changed() {
 //   }
 //   return EventHandlerStatus::CONTINUE;
 // }
-
-// ToDo: Create a message queue in main.cpp and share it with FileReader so that
-// FileReader can add messages to it.
 
 void FileReader::run(std::stop_token token,
                      ThreadSafeQueue<FileProcessingEvent> &event_queue) {

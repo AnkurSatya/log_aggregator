@@ -19,11 +19,11 @@ public:
 
 private:
   FileId next_file_id_{0};
-  ThreadSafeQueue<FileProcessingEvent> event_queue_;
-  std::unordered_map<FileId, FileReader> file_readers_;
-  std::unordered_map<FileId, std::jthread> file_reader_threads_;
-  std::vector<FileReader> files;
-  std::jthread event_processor_thread_;
   // Shared mutex for read/write operations on maps.
   std::shared_mutex rw_mutex_;
+  ThreadSafeQueue<FileProcessingEvent> event_queue_;
+  std::vector<FileReader> files;
+  std::jthread event_processor_thread_;
+  std::unordered_map<FileId, FileReader> file_readers_;
+  std::unordered_map<FileId, std::jthread> file_reader_threads_;
 };

@@ -30,10 +30,6 @@ Result<FileId, Error> FileManager::add_file(const std::filesystem::path path) {
   return next_file_id_;
 }
 
-// ToDo
-// 1. Verify the thread creation logic and possibility of deadlocks
-// 2. Launch a thread and check i
-
 void FileManager::process_file(std::stop_token token, FileId id) {
   std::shared_lock lock(rw_mutex_);
   // Check if File Id exists because it is possible that the File Id was deleted

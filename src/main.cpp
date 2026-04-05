@@ -6,23 +6,31 @@
 using namespace std;
 using namespace log_aggregator;
 
-void log_exception(const exception &e) {
-  cerr << e.what() << endl;
-  try {
-    rethrow_if_nested(e);
-  } catch (const exception &inner) {
-    log_exception(inner);
-  } catch (...) {
-    cerr << "Unknown exception" << endl;
+condition_variable shutdown_cv;
+mutex shutdown_mtx;
+bool shutdown_requested = false;
+
+void signal_handler(int signal) {
+  {
+    std::lock_guard<mutex> lock(shutdown_mtx);
+    shutdown_requested = true;
   }
+  // Wake up the main thread
+  shutdown_cv.notify_all();
 }
 
 int main() {
   filesystem::path file_path{"/home/ankur/projects/log_aggregator/app.log"};
   FileManager file_manager;
   Result<FileId, Error> file_id = file_manager.add_file(file_path);
-  if (!file_id)
+  if (!file_id) {
     cerr << format("Failed to open file {}: {}, {}", file_path.string(),
                    file_id.error().code.message(), file_id.error().message)
          << endl;
+    return 1;
+  }
+
+  unique_lock<mutex> lock(shutdown_mtx);
+  shutdown_cv.wait(lock, [] { return shutdown_requested; });
+  return 0;
 }
