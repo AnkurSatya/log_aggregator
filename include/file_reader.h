@@ -45,7 +45,8 @@ public:
   FileReader &
   operator=(FileReader &&other) = delete;  // reassignment not allowed
   FileReader(const FileReader &) = delete; // copying not allowed
-  FileReader &operator=(const FileReader &) = delete;
+  FileReader &
+  operator=(const FileReader &) = delete; // copying reassignment not allowwed
 
   // static Result<FileReader, std::error_code>
   static Result<FileReader, std::error_code>

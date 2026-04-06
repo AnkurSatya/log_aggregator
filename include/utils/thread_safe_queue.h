@@ -15,12 +15,18 @@ public:
     cv_.notify_one();
   }
 
-  T pop() {
+  T pop(std::stop_token token) {
     // Unique lock can release and acquire mutex as and when necessary unlike
     // lock_guard. condition_variable::wait needs to release and acquire
     // the mutex and lock_guard does not allow manual releasing of lock.
     std::unique_lock lock(mutex_);
-    cv_.wait(&lock, [this] { return !queue_.empty(); });
+    // Wakes up when:
+    // 1. queue is not empty
+    // 2. Someone calls cv_.notify_one() or cv_notify_all()
+    // 3. token.stop_requested() is true.
+    cv_.wait(lock, token, [this] { return !queue_.empty(); });
+    if (token.stop_requested() && queue_.empty())
+      return T{};
     // queue pop does not return the value so the value should be read or moved
     // before popping.
     T item = std::move(queue_.front());
@@ -45,5 +51,5 @@ public:
 private:
   std::queue<T> queue_;
   mutable std::mutex mutex_;
-  std::condition_variable cv_;
+  std::condition_variable_any cv_;
 };

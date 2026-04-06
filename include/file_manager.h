@@ -8,6 +8,7 @@
 
 class FileManager {
 public:
+  void start_event_processing();
   Result<FileId, log_aggregator ::Error> add_file(const std::filesystem::path);
   void remove_file(FileId);
   void process_file(std::stop_token, FileId id);

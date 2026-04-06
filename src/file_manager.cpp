@@ -4,6 +4,11 @@
 
 using namespace std;
 using namespace log_aggregator;
+
+void FileManager::start_event_processing() {
+  event_processor_thread_ = jthread(&FileManager::process_events, this);
+}
+
 Result<FileId, Error> FileManager::add_file(const std::filesystem::path path) {
   filesystem::path file_path{path};
   FileId file_id = next_file_id_;
@@ -24,7 +29,10 @@ Result<FileId, Error> FileManager::add_file(const std::filesystem::path path) {
     // Launch the file reader in a separate thread.
     jthread thread(&FileManager::process_file, this, file_id);
     if (!file_reader_threads_.try_emplace(file_id, std::move(thread)).second) {
-      thread.request_stop();
+      // No need to explicilty call thread.request_stop() since "thread" still
+      // owns the jthread because move(thread) only happens if try_emplace
+      // returns true. Hence on exit of this function, thread would call
+      // request_stop() and join() itself.
       return unexpected(Error::from_errno(
           EEXIST, "A thread is already processing the file."));
     }
@@ -49,8 +57,8 @@ void FileManager::process_file(stop_token token, FileId id) {
     if (it == file_readers_.end())
       return;
     reader = it->second;
-    reader->run(token, event_queue_);
   }
+  reader->run(token, event_queue_);
   // Lock should be released before calling a function which depends on
   // stop_token to be interrupted because otherwise this lock would not get
   // acquired by a function which would set the stop_token and hence leading to
@@ -66,7 +74,7 @@ void FileManager::remove_file(FileId file_id) {
   jthread thread_to_stop;
   {
     // Using exclusive lock here since we are modifying the file_readers map.
-    std::lock_guard lock(rw_mutex_);
+    lock_guard lock(rw_mutex_);
     auto it = file_reader_threads_.find(file_id);
     if (it != file_reader_threads_.end()) {
       thread_to_stop = std::move(it->second);
@@ -76,4 +84,11 @@ void FileManager::remove_file(FileId file_id) {
     file_readers_.erase(file_id);
   }
   cout << "Joining thread" << endl;
+}
+
+void FileManager::process_events(stop_token token) {
+  while (!token.stop_requested()) {
+    event_queue_.pop(token);
+    // Process the item
+  }
 }
