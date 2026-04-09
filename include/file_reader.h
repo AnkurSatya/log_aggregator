@@ -1,6 +1,5 @@
 #pragma once
 #include <filesystem>
-#include <optional>
 #include <stop_token>
 #include <sys/inotify.h>
 #include <sys/stat.h>
@@ -67,13 +66,15 @@ public:
   add_inotify_dir_watch(int inotify_fd, const std::filesystem::path &dir,
                         uint32_t mask);
 
-  int read_new_data();
-  std::optional<bool> is_file_truncated();
-  EventHandlerStatus handle_file_modify();
-  EventHandlerStatus handle_file_truncated();
-  EventHandlerStatus handle_file_attribute_changed();
+  Result<std::string, log_aggregator::Error> read_new_data();
+  Result<bool, log_aggregator::Error> is_file_truncated();
+  Result<std::string, log_aggregator::Error> handle_file_modify();
+  Result<void, log_aggregator::Error> handle_file_truncated();
+  Result<EventHandlerStatus, log_aggregator::Error>
+  handle_file_attribute_changed();
   EventHandlerStatus handle_file_rotated();
   void run(std::stop_token, ThreadSafeQueue<FileProcessingEvent> &event_queue);
+  static bool is_blank(std::string_view);
   void cleanup();
   void stop();
 };

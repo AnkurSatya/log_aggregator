@@ -1,5 +1,6 @@
 #include <file_manager.h>
 #include <file_reader.h>
+#include <format>
 #include <iostream>
 
 using namespace std;
@@ -88,7 +89,32 @@ void FileManager::remove_file(FileId file_id) {
 
 void FileManager::process_events(stop_token token) {
   while (!token.stop_requested()) {
-    event_queue_.pop(token);
-    // Process the item
+    visit([this](const auto &event) { handle(event); },
+          event_queue_.pop(token));
   }
+}
+
+void FileManager::handle(const Events::InotifyError &event) {
+  cerr << format("File ID: {}, error code: {}", event.id, event.error.message())
+       << endl;
+  cerr << "Closing the File ..." << endl;
+  remove_file(event.id);
+}
+
+// ToDo:
+// 1. Refactor file_reader.run() and push events to the message queue -- DONE
+// 2. Implement handle() for all the types of EventProcessing variant. -- DONE
+// 3. Check what needs to be done for other inotify events in file_reader.cpp
+
+void FileManager::handle(const Events::FileError &event) {}
+
+void FileManager::handle(const Events::FileClosed &event) {
+  cout << "File Closed event" << endl;
+  cout << "Removing the file ..." << endl;
+  remove_file(event.id);
+}
+
+void FileManager::handle(const Events::DataAvailable &event) {
+  cout << "Data Available event" << endl;
+  cout << "Data: " << event.data << endl;
 }

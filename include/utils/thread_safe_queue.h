@@ -16,9 +16,13 @@ public:
   }
 
   T pop(std::stop_token token) {
-    // Unique lock can release and acquire mutex as and when necessary unlike
-    // lock_guard. condition_variable::wait needs to release and acquire
-    // the mutex and lock_guard does not allow manual releasing of lock.
+    // This function would put the caller thread to sleep if the condition
+    // variable predicate is not true.
+
+    // Unique lock can release and acquire mutex
+    // as and when necessary unlike lock_guard. condition_variable::wait needs
+    // to release and acquire the mutex and lock_guard does not allow manual
+    // releasing of lock.
     std::unique_lock lock(mutex_);
     // Wakes up when:
     // 1. queue is not empty
@@ -35,6 +39,8 @@ public:
   }
 
   std::optional<T> try_pop() {
+    // Unlike pop(), this function would return with/without an item without
+    // waiting.
     std::unique_lock lock(mutex_);
     if (empty())
       return std::nullopt;

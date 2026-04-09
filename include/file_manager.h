@@ -13,6 +13,7 @@ public:
   void remove_file(FileId);
   void process_file(std::stop_token, FileId id);
   void process_events(std::stop_token);
+  void handle(const Events::InotifyError &);
   void handle(const Events::FileError &);
   void handle(const Events::FileClosed &);
   void handle(const Events::DataAvailable &);

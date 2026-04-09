@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <fcntl.h>
 #include <file_reader.h>
@@ -8,6 +10,7 @@
 
 using namespace std;
 using namespace Events;
+using namespace log_aggregator;
 
 FileReader::FileReader(FileInfo file_info) noexcept
     : file_info_(std::move(file_info)) {
@@ -117,35 +120,36 @@ FileReader::add_inotify_dir_watch(int inotify_fd, const filesystem::path &dir,
   return fd;
 }
 
-int FileReader::read_new_data() {
+Result<string, log_aggregator::Error> FileReader::read_new_data() {
   std::array<char, BUF_CHUNK_SIZE> file_buf;
   // Update file stat
-  if (auto current_file_stat{get_fstat(fd())}) {
-    file_info_.file_stat = current_file_stat.value();
-  } else {
-    return -1;
-  }
+  auto current_file_stat{get_fstat(fd())};
+  if (!current_file_stat)
+    return unexpected(Error{current_file_stat.error(),
+                            "is_file_truncated: Failed to get fstat."});
+  file_info_.file_stat = current_file_stat.value();
+
   size_t bytes_to_read = file_info_.file_stat.st_size - file_info_.read_offset;
   // Read and process the data.
-  int data_bytes_read =
+  ssize_t data_bytes_read =
       pread(fd(), file_buf.data(), bytes_to_read, file_info_.read_offset);
   if (data_bytes_read < 0) {
-    return data_bytes_read;
+    return unexpected(Error{error_code(errno, system_category()),
+                            "is_file_truncated: Failed to get fstat."});
   }
 
-  string_view data(file_buf.data(), data_bytes_read);
-  cout << format("data from file {}", data) << endl;
+  string new_data{file_buf.data(), static_cast<size_t>(data_bytes_read)};
 
   // Update members related to file metadata
   file_info_.read_offset += data_bytes_read - 1;
-
-  return data_bytes_read;
+  return new_data;
 }
 
-optional<bool> FileReader::is_file_truncated() {
+Result<bool, Error> FileReader::is_file_truncated() {
   auto updated_file_stat{get_fstat(fd())};
   if (!updated_file_stat) {
-    return nullopt;
+    return unexpected(Error{updated_file_stat.error(),
+                            "is_file_truncated: Failed to get fstat."});
   }
 
   if (updated_file_stat->st_size < file_info_.read_offset) {
@@ -169,45 +173,52 @@ optional<bool> FileReader::is_file_truncated() {
   return false;
 }
 
-EventHandlerStatus FileReader::handle_file_truncated() {
-  optional<bool> file_truncated{is_file_truncated()};
+// ToDo: Check if Result<T,E> is a good option here.
+Result<void, Error> FileReader::handle_file_truncated() {
+  auto file_truncated{is_file_truncated()};
+  // Error in deciding if file was truncated
   if (!file_truncated) {
-    return EventHandlerStatus::ERROR;
+    return unexpected(file_truncated.error());
   }
 
-  if (!file_truncated.value()) {
-    return EventHandlerStatus::CONTINUE;
-  }
+  // File not truncated
+  if (!file_truncated.value())
+    return {};
 
   auto new_offset{jump_to_offset(fd(), 0, SEEK_SET)};
   if (!new_offset) {
-    cerr << "Failed to reset the read offset after truncation" << endl;
-    return EventHandlerStatus::STOP;
+    return unexpected(Error{new_offset.error(),
+                            "handle_file_truncated: Failed to reset the "
+                            "read offset after truncation"});
   }
 
   // Reset the file's reading offset
   file_info_.read_offset = new_offset.value();
-  return EventHandlerStatus::CONTINUE;
+  return {};
 }
 
-EventHandlerStatus FileReader::handle_file_modify() {
+Result<string, Error> FileReader::handle_file_modify() {
   // File truncation check.
-  if (auto status = handle_file_truncated();
-      status != EventHandlerStatus::CONTINUE) {
-    return status;
+  if (auto status{handle_file_truncated()}; !status) {
+    return unexpected(status.error());
   };
 
-  if (read_new_data() == -1) {
-    return EventHandlerStatus::ERROR;
+  auto new_data = read_new_data();
+  if (!new_data) {
+    return unexpected(
+        Error{new_data.error().code,
+              format("handle_file_modify: new data could not be read: {}",
+                     new_data.error().message)});
   }
-  return EventHandlerStatus::CONTINUE;
+  return new_data.value();
 }
 
-EventHandlerStatus FileReader::handle_file_attribute_changed() {
+Result<EventHandlerStatus, Error> FileReader::handle_file_attribute_changed() {
   cout << "File attributes changed" << endl;
   auto updated_file_stat{get_fstat(fd())};
   if (!updated_file_stat) {
-    return EventHandlerStatus::ERROR;
+    return unexpected(Error{updated_file_stat.error(),
+                            "is_file_truncated: Failed to get fstat."});
   }
 
   // st_nlink is set to zero but the inode is still alive because of two
@@ -217,7 +228,7 @@ EventHandlerStatus FileReader::handle_file_attribute_changed() {
     cout << "File has been deleted" << endl;
     return EventHandlerStatus::STOP;
   }
-  return EventHandlerStatus::CONTINUE;
+  return {};
 }
 
 // EventHandlerStatus FileReader::handle_file_rotated() {
@@ -282,24 +293,35 @@ void FileReader::run(std::stop_token token,
     }
 
     // Processing inotify events
-    struct inotify_event *event;
-    EventHandlerStatus status{EventHandlerStatus::CONTINUE};
-    // sizeof (struct inotify event) would just give the fix size of inotify
-    // event which does contain a field called "name" but it is empty in the
-    // struct definition. When an actual event is read, it puts the data in
-    // event->name and hence we need to increment by fixed struct size and
-    // event->len(this gives the length of this additional data including
-    // nuls)
-    for (char *ptr = inotify_buf.data();
-         ptr < inotify_buf.data() + inotify_bytes_read;
-         ptr += sizeof(struct inotify_event) + event->len) {
-
+    // Create a span of bytes read from the buffer.
+    auto buf_span = span<char>(inotify_buf.data(), inotify_bytes_read);
+    auto ptr = buf_span.begin();
+    while (ptr < buf_span.end()) {
+      // malformed buffer
+      if (distance(ptr, buf_span.end()) < sizeof(inotify_event))
+        break;
       // This  is a delibrate conversion of char* to inotify event struct
       // pointer. It IS unsafe. Didn't find any other way at the time.
-      event = reinterpret_cast<inotify_event *>(ptr);
+      auto event = reinterpret_cast<inotify_event *>(&(*ptr));
+      // sizeof (struct inotify event) would just give the fix size of inotify
+      // event which does contain a field called "name" but it is empty in the
+      // struct definition. When an actual event is read, it puts the data in
+      // event->name and hence we need to increment by fixed struct size and
+      // event->len(this gives the length of this additional data including
+      // nuls)
+      auto next = sizeof(struct inotify_event) + event->len;
+      // malformed event length
+      if (distance(ptr, buf_span.end()) < next)
+        break;
+      ptr += next;
 
       if (event->mask & IN_MODIFY || event->mask & IN_CLOSE_WRITE) {
-        status = handle_file_modify();
+        auto new_data{handle_file_modify()};
+        if (!new_data)
+          break;
+        DataAvailable data_event{.id = file_info_.file_id,
+                                 .data = std::move(new_data.value())};
+        event_queue.push(std::move(data_event));
       }
 
       if (event->mask & IN_CREATE) {
@@ -317,25 +339,28 @@ void FileReader::run(std::stop_token token,
 
       // For detecting if file has been deleted.
       if (event->mask & IN_ATTRIB) {
-        if (auto status = handle_file_attribute_changed();
-            status != EventHandlerStatus::CONTINUE) {
-          return;
+        auto status{handle_file_attribute_changed()};
+        if (!status)
+          break;
+        if (status.value() == EventHandlerStatus::STOP) {
+          FileClosed file_closed_event{.id = file_info_.file_id};
+          event_queue.push(std::move(file_closed_event));
         }
+        if (status.value() == EventHandlerStatus::ERROR)
+          break;
       }
       if (event->mask & IN_DELETE || event->mask & IN_DELETE_SELF) {
         cout << "File deleted. Exiting ..." << endl;
-        return;
-      }
-
-      // Process the status
-      if (status == EventHandlerStatus::ERROR) {
-        // ToDo: May be retry something here instead of exiting.
-        return;
-      } else if (status == EventHandlerStatus::STOP) {
         return;
       }
     }
 
     this_thread::sleep_for(100ms);
   }
+}
+
+bool FileReader::is_blank(string_view data) {
+  return data.empty() || std::ranges::all_of(data, [](unsigned char c) {
+           return std::isspace(c);
+         });
 }

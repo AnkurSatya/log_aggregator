@@ -23,8 +23,6 @@ int main() {
   filesystem::path file_path{"/home/ankur/projects/log_aggregator/app.log"};
   FileManager file_manager;
 
-  file_manager.start_event_processing();
-
   Result<FileId, Error> file_id = file_manager.add_file(file_path);
   if (!file_id) {
     cerr << format("Failed to open file {}: {}, {}", file_path.string(),
@@ -33,10 +31,12 @@ int main() {
     return 1;
   }
 
+  file_manager.start_event_processing();
+
   this_thread::sleep_for(1000ms);
   // file_manager.remove_file(file_id.value());
   // Temporary fix to let the threads run until user stops the application.
-  // unique_lock<mutex> lock(shutdown_mtx);
-  // shutdown_cv.wait(lock, [] { return shutdown_requested; });
+  unique_lock<mutex> lock(shutdown_mtx);
+  shutdown_cv.wait(lock, [] { return shutdown_requested; });
   return 0;
 }
