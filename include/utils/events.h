@@ -13,7 +13,8 @@ struct DataAvailable {
 
 struct FileError {
   FileId id;
-  std::error_code error;
+  log_aggregator::Error error;
+  // std::error_code error;
 };
 
 struct FileClosed {
@@ -22,7 +23,7 @@ struct FileClosed {
 
 struct InotifyError {
   FileId id;
-  std::error_code error;
+  std::error_code error_code;
 };
 } // namespace Events
 

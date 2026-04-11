@@ -95,7 +95,8 @@ void FileManager::process_events(stop_token token) {
 }
 
 void FileManager::handle(const Events::InotifyError &event) {
-  cerr << format("File ID: {}, error code: {}", event.id, event.error.message())
+  cerr << format("File ID: {}, error code: {}", event.id,
+                 event.error_code.message())
        << endl;
   cerr << "Closing the File ..." << endl;
   remove_file(event.id);
@@ -104,9 +105,18 @@ void FileManager::handle(const Events::InotifyError &event) {
 // ToDo:
 // 1. Refactor file_reader.run() and push events to the message queue -- DONE
 // 2. Implement handle() for all the types of EventProcessing variant. -- DONE
-// 3. Check what needs to be done for other inotify events in file_reader.cpp
+// 3. Check what needs to be done for other inotify events in file_reader.cpp --
+// DONE
 
-void FileManager::handle(const Events::FileError &event) {}
+void FileManager::handle(const Events::FileError &event) {
+  cout << "File Error event" << endl;
+  cout << format("Error: {}: {}", event.error.code.message(),
+                 event.error.message);
+  // ToDo: Refactor it in the future: show the error to the user and let them
+  // decide if they want to close the file.
+  cout << "Removing the file ..." << endl;
+  remove_file(event.id);
+}
 
 void FileManager::handle(const Events::FileClosed &event) {
   cout << "File Closed event" << endl;

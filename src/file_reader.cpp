@@ -268,7 +268,7 @@ void FileReader::run(std::stop_token token,
       if (inotify_bytes_read == -1 && errno != EAGAIN) {
         InotifyError event{
             .id = file_info_.file_id,
-            .error = error_code(errno, system_category()),
+            .error_code = error_code(errno, system_category()),
         };
         event_queue.push(std::move(event));
         return;
@@ -279,7 +279,7 @@ void FileReader::run(std::stop_token token,
         // Inotify FD has been closed.
         InotifyError event{
             .id = file_info_.file_id,
-            .error = error_code(errno, system_category()),
+            .error_code = error_code(errno, system_category()),
         };
         event_queue.push(std::move(event));
         return;
@@ -317,8 +317,13 @@ void FileReader::run(std::stop_token token,
 
       if (event->mask & IN_MODIFY || event->mask & IN_CLOSE_WRITE) {
         auto new_data{handle_file_modify()};
-        if (!new_data)
-          break;
+        if (!new_data) {
+          FileError file_error_event{.id = file_info_.file_id,
+                                     .error = new_data.error()};
+          event_queue.push(std::move(file_error_event));
+          return;
+        }
+
         DataAvailable data_event{.id = file_info_.file_id,
                                  .data = std::move(new_data.value())};
         event_queue.push(std::move(data_event));
@@ -340,14 +345,23 @@ void FileReader::run(std::stop_token token,
       // For detecting if file has been deleted.
       if (event->mask & IN_ATTRIB) {
         auto status{handle_file_attribute_changed()};
-        if (!status)
-          break;
+        if (!status) {
+          FileError file_error_event{.id = file_info_.file_id,
+                                     .error = status.error()};
+          event_queue.push(std::move(file_error_event));
+          return;
+        }
+
         if (status.value() == EventHandlerStatus::STOP) {
           FileClosed file_closed_event{.id = file_info_.file_id};
           event_queue.push(std::move(file_closed_event));
         }
-        if (status.value() == EventHandlerStatus::ERROR)
-          break;
+        if (status.value() == EventHandlerStatus::ERROR) {
+          FileError file_error_event{.id = file_info_.file_id,
+                                     .error = status.error()};
+          event_queue.push(std::move(file_error_event));
+          return;
+        }
       }
       if (event->mask & IN_DELETE || event->mask & IN_DELETE_SELF) {
         cout << "File deleted. Exiting ..." << endl;
