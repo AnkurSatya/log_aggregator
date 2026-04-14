@@ -1,8 +1,8 @@
 #include <algorithm>
 #include <cctype>
+#include <core/file_reader.h>
 #include <cstring>
 #include <fcntl.h>
-#include <file_reader.h>
 #include <format>
 #include <iostream>
 #include <thread>
@@ -18,7 +18,7 @@ FileReader::FileReader(FileInfo file_info) noexcept
 }
 
 Result<FileReader, std::error_code>
-FileReader::open_file(const FileId file_id, const filesystem::path file_path) {
+FileReader::open_file(const FileId file_id, const filesystem::path &file_path) {
   if (!filesystem::exists(file_path))
     return unexpected(make_error_code(errc::no_such_file_or_directory));
 

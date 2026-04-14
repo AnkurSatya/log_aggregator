@@ -1,7 +1,7 @@
-#include <file_manager.h>
-#include <file_reader.h>
+#include <core/file_manager.h>
 #include <format>
 #include <iostream>
+#include <ui/ui_manager.h>
 
 using namespace std;
 using namespace log_aggregator;
@@ -20,21 +20,28 @@ void signal_handler(int signal) {
 }
 
 int main() {
-  filesystem::path file_path{"/home/ankur/projects/log_aggregator/app.log"};
-  FileManager file_manager;
+  // ToDo
+  // 1. Create a UI class.
+  // 2. Initialise it here and launch the UI::run() in a thread.
+  // 3. Create a threadsafe queue to be shared between UI and FileManager.
+  // 4. Push a DataAvailable event from FileManager with empty data to trigger
+  // Tile creation for the file in the UI.
 
-  Result<FileId, Error> file_id = file_manager.add_file(file_path);
-  if (!file_id) {
-    cerr << format("Failed to open file {}: {}, {}", file_path.string(),
-                   file_id.error().code.message(), file_id.error().message)
-         << endl;
-    return 1;
+  FileManager file_manager;
+  vector<std::string> file_paths = {
+      "/home/ankur/projects/log_aggregator/app.log",
+      "/home/ankur/projects/log_aggregator/app1.log"};
+
+  for (const auto &path : file_paths) {
+    Result<FileId, Error> file_id = file_manager.add_file(path);
+    if (!file_id) {
+      cerr << format("Failed to open file {}: {}, {}", path,
+                     file_id.error().code.message(), file_id.error().message)
+           << endl;
+    }
   }
 
   file_manager.start_event_processing();
-
-  this_thread::sleep_for(1000ms);
-  // file_manager.remove_file(file_id.value());
   // Temporary fix to let the threads run until user stops the application.
   unique_lock<mutex> lock(shutdown_mtx);
   shutdown_cv.wait(lock, [] { return shutdown_requested; });

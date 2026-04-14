@@ -49,7 +49,7 @@ public:
 
   // static Result<FileReader, std::error_code>
   static Result<FileReader, std::error_code>
-  open_file(const FileId file_id, const std::filesystem::path file_path);
+  open_file(const FileId file_id, const std::filesystem::path &file_path);
   static Result<struct stat, std::error_code> get_fstat(int fd);
   static Result<off_t, std::error_code> jump_to_offset(int fd, off_t offset,
                                                        int whence);

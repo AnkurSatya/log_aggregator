@@ -1,5 +1,5 @@
 #pragma once
-#include <file_reader.h>
+#include <core/file_reader.h>
 #include <shared_mutex>
 #include <thread>
 #include <unordered_map>
@@ -9,7 +9,8 @@
 class FileManager {
 public:
   void start_event_processing();
-  Result<FileId, log_aggregator ::Error> add_file(const std::filesystem::path);
+  Result<FileId, log_aggregator ::Error>
+  add_file(const std::filesystem::path &);
   void remove_file(FileId);
   void process_file(std::stop_token, FileId id);
   void process_events(std::stop_token);
@@ -28,4 +29,6 @@ private:
   // independently at two places: in process_file() and remove_file().
   std::unordered_map<FileId, std::shared_ptr<FileReader>> file_readers_;
   std::unordered_map<FileId, std::jthread> file_reader_threads_;
+  // detached but tracked threads.
+  std::vector<std::jthread> orphaned_threads;
 };

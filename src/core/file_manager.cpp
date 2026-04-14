@@ -1,5 +1,4 @@
-#include <file_manager.h>
-#include <file_reader.h>
+#include <core/file_manager.h>
 #include <format>
 #include <iostream>
 
@@ -10,7 +9,7 @@ void FileManager::start_event_processing() {
   event_processor_thread_ = jthread(&FileManager::process_events, this);
 }
 
-Result<FileId, Error> FileManager::add_file(const std::filesystem::path path) {
+Result<FileId, Error> FileManager::add_file(const std::filesystem::path &path) {
   filesystem::path file_path{path};
   FileId file_id = next_file_id_;
   auto file_reader = FileReader::open_file(file_id, file_path);
@@ -79,6 +78,11 @@ void FileManager::remove_file(FileId file_id) {
     auto it = file_reader_threads_.find(file_id);
     if (it != file_reader_threads_.end()) {
       thread_to_stop = std::move(it->second);
+      thread_to_stop.request_stop();
+      // Moving it to another vector so that this function can return quickly
+      // instead of waiting for the thread to join. Waiting for the thread to
+      // join would block the UI when the user removes a file pane.
+      orphaned_threads.push_back(std::move(thread_to_stop));
       file_reader_threads_.erase(it);
     }
     // Deleting the reference to FileReader held by the map.
