@@ -88,7 +88,6 @@ void FileManager::remove_file(FileId file_id) {
     // Deleting the reference to FileReader held by the map.
     file_readers_.erase(file_id);
   }
-  cout << "Joining thread" << endl;
 }
 
 void FileManager::process_events(stop_token token) {

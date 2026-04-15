@@ -10,19 +10,24 @@ struct FilePane {
 
 class Viewport {
 public:
+  // This would be set by UIManager since this callback needs to communicate
+  // with core::FileManager.
   Viewport(const Viewport &) = delete;
   Viewport &operator=(const Viewport &) = delete;
   Viewport(Viewport &&) = delete;
   Viewport &operator=(Viewport &&) = delete;
 
   Viewport();
+  void set_callback_pane_close(std::function<void(FileId)>);
   Result<void, std::string> add_pane(FileId, std::filesystem::path);
   void remove_pane(FileId);
   void update_pane(FileId, const std::string);
   ftxui::Component compose();
+  ftxui::Element buildPaneGrid();
 
 private:
   std::unordered_map<FileId, FilePane> panes_;
   std::mutex pane_update_mutex_;
+  std::function<void(FileId)> callback_pane_close_;
   ftxui::Component compose_pane(FilePane &);
 };

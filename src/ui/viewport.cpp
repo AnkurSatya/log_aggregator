@@ -6,8 +6,9 @@
 using namespace std;
 using namespace ftxui;
 
-Viewport::Viewport() {
-  // Create
+Viewport::Viewport() {}
+void Viewport::set_callback_pane_close(function<void(FileId)> callback) {
+  callback_pane_close_ = std::move(callback);
 }
 
 Result<void, string> Viewport::add_pane(FileId file_id, filesystem::path path) {
@@ -19,7 +20,10 @@ Result<void, string> Viewport::add_pane(FileId file_id, filesystem::path path) {
   return {};
 }
 
-void Viewport::remove_pane(FileId file_id) { panes_.erase(file_id); }
+void Viewport::remove_pane(FileId file_id) {
+  lock_guard lock(pane_update_mutex_);
+  panes_.erase(file_id);
+}
 
 void Viewport::update_pane(FileId file_id, std::string new_data) {
   // Mutex is being used here because compose_pane() would also be accessing
@@ -32,28 +36,37 @@ void Viewport::update_pane(FileId file_id, std::string new_data) {
 }
 
 Component Viewport::compose_pane(FilePane &pane) {
-  auto on_click = [&] {};
-  auto button = Button("Button", on_click);
+  auto button = Button("[x]", [&, pane] {
+    if (callback_pane_close_)
+      callback_pane_close_(pane.file_id);
+  });
 
-  lock_guard lock(pane_update_mutex_);
-  auto it = panes_.find(pane.file_id);
-  Elements data_rows;
-  if (it != panes_.end()) {
-    for (const auto &line : it->second.data) {
-      data_rows.push_back(text(line));
-    }
-  }
   return Renderer(button, [&, button] {
-    return vbox({hbox({
-                     text("") | bold | flex,
-                     button->Render(),
-                 }),
-                 separator()}) |
-           border | flex;
+    Elements data_rows;
+    {
+      lock_guard lock(pane_update_mutex_);
+      auto it = panes_.find(pane.file_id);
+
+      if (it != panes_.end()) {
+        for (const auto &line : it->second.data) {
+          data_rows.push_back(text(line));
+        }
+      }
+    }
+
+    auto header = hbox({text(pane.path.string()), button->Render()});
+
+    auto body = data_rows.empty() ? text("") | dim | center
+                                  : vbox(data_rows) | yframe | flex;
+
+    return vbox({header, separator(), body}) | border | flex;
   });
 }
 
-Component Viewport::compose() {}
+Component Viewport::compose() {
+  // ToDo:
+  //  1. Call compose for all the panes here.
+}
 
 Element buildPaneGrid() {
   // This should call render on all the panes and this should be called by
