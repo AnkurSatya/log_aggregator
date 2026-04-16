@@ -28,6 +28,10 @@ int main() {
   // Tile creation for the file in the UI.
 
   FileManager file_manager;
+
+  UIManager ui_manager(file_manager);
+  ui_manager.run();
+
   vector<std::string> file_paths = {
       "/home/ankur/projects/log_aggregator/app.log",
       "/home/ankur/projects/log_aggregator/app1.log"};

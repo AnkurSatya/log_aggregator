@@ -15,13 +15,28 @@ Result<void, string> Viewport::add_pane(FileId file_id, filesystem::path path) {
   auto pane = FilePane{.file_id = file_id, .path{std::move(path)}, .data{}};
   if (!panes_.try_emplace(file_id, std::move(pane)).second) {
     return unexpected(
+        format("Pane for {} is already registered.", path.string()));
+  }
+
+  // Add UI for the pane to the root container
+  auto pane_view = compose_pane(pane);
+  if (!views_.try_emplace(file_id, std::move(pane_view)).second) {
+    return unexpected(
         format("A window for file at {} already exists.", path.string()));
   }
+  root_container_->Add(compose_pane(pane));
   return {};
 }
 
 void Viewport::remove_pane(FileId file_id) {
   lock_guard lock(pane_update_mutex_);
+  // First remove the view for the pane and then remove the associated FilePane
+  // object since view has a reference for FilePane.
+  auto it = views_.find(file_id);
+  if (it != views_.end()) {
+    it->second->Detach();
+    views_.erase(file_id);
+  }
   panes_.erase(file_id);
 }
 
@@ -36,12 +51,12 @@ void Viewport::update_pane(FileId file_id, std::string new_data) {
 }
 
 Component Viewport::compose_pane(FilePane &pane) {
-  auto button = Button("[x]", [&, pane] {
+  auto close_button = Button("[x]", [&, pane] {
     if (callback_pane_close_)
       callback_pane_close_(pane.file_id);
   });
 
-  return Renderer(button, [&, button] {
+  return Renderer(close_button, [&] {
     Elements data_rows;
     {
       lock_guard lock(pane_update_mutex_);
@@ -54,7 +69,7 @@ Component Viewport::compose_pane(FilePane &pane) {
       }
     }
 
-    auto header = hbox({text(pane.path.string()), button->Render()});
+    auto header = hbox({text(pane.path.string()), close_button->Render()});
 
     auto body = data_rows.empty() ? text("") | dim | center
                                   : vbox(data_rows) | yframe | flex;
@@ -63,12 +78,13 @@ Component Viewport::compose_pane(FilePane &pane) {
   });
 }
 
-Component Viewport::compose() {
-  // ToDo:
-  //  1. Call compose for all the panes here.
-}
-
-Element buildPaneGrid() {
-  // This should call render on all the panes and this should be called by
-  // UIManager.compose().
-}
+// Component Viewport::compose() {
+//   vector<Component> component_trees;
+//   for (auto &pane : panes_) {
+//     component_trees.push_back(compose_pane(pane.second));
+//   }
+//   // ToDo: Add the logic for checking max row and max col here, and create
+//   the
+//   // final container accordingly.
+//   return Container::Horizontal(component_trees);
+// }

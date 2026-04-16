@@ -19,6 +19,8 @@ private:
   FileManager &file_manager_;
   Viewport viewport_;
   ftxui::ScreenInteractive screen_;
+
+  void exit_application();
   ftxui::Component compose();
   ftxui::Component root_container = ftxui::Container::Horizontal({});
 };
