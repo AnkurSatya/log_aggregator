@@ -22,15 +22,37 @@ UIManager::UIManager(FileManager &file_manager)
 Component UIManager::compose() {
   auto viewport_root = viewport_.get_root_container();
 
-  auto close_button = Button("[x]", [&] { exit_application(); });
+  auto close_button = Button("[x]", [this] { exit_application(); });
 
-  return Renderer(close_button, [&, close_button] {
-    auto header = hbox({text("LOG AGGREGATOR"), close_button->Render()});
-    auto body = vbox(viewport_root->Render()) | yframe | flex;
-    return vbox({header, separator(), body}) | border | flex;
-  });
+  // The first argument is the component that should receive events.
+  // The second argument is the lambda and be careful about the types
+  // (reference, ptr etc) of the parameters being passed to it. Consider the
+  // possibility of dangling references.
+  return Renderer(Container::Vertical({close_button, viewport_root}),
+                  [close_button, viewport_root] {
+                    auto header = hbox({text("LOG AGGREGATOR") | flex,
+                                        close_button->Render()});
+                    auto body = vbox({viewport_root->Render() | flex});
+                    return vbox({header, separator(), body}) | border | flex;
+                  });
 }
 
-void UIManager::run() { screen_.Loop(compose()); }
+void UIManager::run() {
+  auto path = filesystem::path("a.log");
+  auto result = viewport_.add_pane(1, path);
+  viewport_.update_pane(1, "Test log 1");
+  viewport_.update_pane(1, "Test log 2");
+  viewport_.update_pane(1, "Test log 3");
+
+  auto result2 = viewport_.add_pane(2, path);
+  viewport_.update_pane(2, "Test log 4");
+  viewport_.update_pane(2, "Test log 5");
+  viewport_.update_pane(2, "Test log 6");
+  if (!result) {
+    cout << result.error() << endl;
+    exit(1);
+  }
+  screen_.Loop(compose());
+}
 
 void UIManager::exit_application() { cout << "Exiting now ..." << endl; }

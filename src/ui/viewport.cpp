@@ -19,12 +19,12 @@ Result<void, string> Viewport::add_pane(FileId file_id, filesystem::path path) {
   }
 
   // Add UI for the pane to the root container
-  auto pane_view = compose_pane(pane);
-  if (!views_.try_emplace(file_id, std::move(pane_view)).second) {
+  auto pane_view = compose_pane(file_id);
+  if (!views_.try_emplace(file_id, pane_view).second) {
     return unexpected(
         format("A window for file at {} already exists.", path.string()));
   }
-  root_container_->Add(compose_pane(pane));
+  root_container_->Add(pane_view);
   return {};
 }
 
@@ -40,7 +40,7 @@ void Viewport::remove_pane(FileId file_id) {
   panes_.erase(file_id);
 }
 
-void Viewport::update_pane(FileId file_id, std::string new_data) {
+void Viewport::update_pane(FileId file_id, const string new_data) {
   // Mutex is being used here because compose_pane() would also be accessing
   // FilePane.data
   lock_guard lock(pane_update_mutex_);
@@ -50,32 +50,38 @@ void Viewport::update_pane(FileId file_id, std::string new_data) {
   }
 }
 
-Component Viewport::compose_pane(FilePane &pane) {
-  auto close_button = Button("[x]", [&, pane] {
-    if (callback_pane_close_)
-      callback_pane_close_(pane.file_id);
+Component Viewport::compose_pane(FileId file_id) {
+  auto close_button = Button("[x]", [this, file_id] {
+    if (callback_pane_close_) {
+      callback_pane_close_(file_id);
+    }
   });
 
-  return Renderer(close_button, [&] {
+  // The first argument is the component that should receive events.
+  return Renderer(close_button, [this, close_button, file_id] {
     Elements data_rows;
-    {
-      lock_guard lock(pane_update_mutex_);
-      auto it = panes_.find(pane.file_id);
-
-      if (it != panes_.end()) {
-        for (const auto &line : it->second.data) {
-          data_rows.push_back(text(line));
-        }
+    auto pane = get_pane(file_id);
+    if (pane != nullptr) {
+      for (const auto &line : pane->data) {
+        data_rows.push_back(text(line));
       }
     }
 
-    auto header = hbox({text(pane.path.string()), close_button->Render()});
+    auto header = hbox({text(pane->path.string()), close_button->Render()});
 
     auto body = data_rows.empty() ? text("") | dim | center
                                   : vbox(data_rows) | yframe | flex;
 
     return vbox({header, separator(), body}) | border | flex;
   });
+}
+
+const FilePane *Viewport::get_pane(FileId file_id) {
+  lock_guard lock(pane_update_mutex_);
+  auto it = panes_.find(file_id);
+  if (it != panes_.end())
+    return &(it->second);
+  return nullptr;
 }
 
 // Component Viewport::compose() {

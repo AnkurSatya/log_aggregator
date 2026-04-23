@@ -32,5 +32,6 @@ private:
   std::mutex pane_update_mutex_;
   std::function<void(FileId)> callback_pane_close_;
   ftxui::Component root_container_ = ftxui::Container::Vertical({});
-  ftxui::Component compose_pane(FilePane &);
+  ftxui::Component compose_pane(FileId);
+  const FilePane *get_pane(FileId);
 };
