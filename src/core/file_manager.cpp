@@ -5,6 +5,11 @@
 using namespace std;
 using namespace log_aggregator;
 
+FileManager::FileManager(shared_ptr<zmq::context_t> ctx,
+                         ZmqSocketConfig socket_config)
+    : messenger_{ctx, socket_config.sock_addr, socket_config.socket_type,
+                 socket_config.send_flags, true} {}
+
 void FileManager::start_event_processing() {
   event_processor_thread_ = jthread(&FileManager::process_events, this);
 }

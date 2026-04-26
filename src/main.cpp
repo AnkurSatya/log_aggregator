@@ -2,6 +2,8 @@
 #include <format>
 #include <iostream>
 #include <ui/ui_manager.h>
+#include <utils/config.h>
+#include <utils/messenger.h>
 
 using namespace std;
 using namespace log_aggregator;
@@ -27,9 +29,16 @@ int main() {
   // 4. Push a DataAvailable event from FileManager with empty data to trigger
   // Tile creation for the file in the UI.
 
-  FileManager file_manager;
+  auto shared_zmq_ctx{make_shared<zmq::context_t>()};
+  ZmqSocketConfig socket_config{
+      .sock_addr = "inproc://log_aggregator",
+      .socket_type = zmq::socket_type::pair,
+      .send_flags = zmq::send_flags::dontwait,
+  };
 
-  UIManager ui_manager(file_manager);
+  FileManager file_manager{shared_zmq_ctx, socket_config};
+
+  UIManager ui_manager(file_manager, shared_zmq_ctx, socket_config);
   ui_manager.run();
 
   vector<std::string> file_paths = {

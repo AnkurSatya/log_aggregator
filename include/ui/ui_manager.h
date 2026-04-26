@@ -11,7 +11,7 @@ public:
   UIManager &
   operator=(const UIManager &) = delete; // copying reassignment not allowwed
 
-  UIManager(FileManager &);
+  UIManager(FileManager &, std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
   void process_file_events();
   void run();
 
@@ -19,6 +19,7 @@ private:
   FileManager &file_manager_;
   Viewport viewport_;
   ftxui::ScreenInteractive screen_;
+  Messenger messenger_;
 
   void exit_application();
   ftxui::Component compose();

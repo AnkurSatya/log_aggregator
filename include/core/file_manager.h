@@ -3,11 +3,14 @@
 #include <shared_mutex>
 #include <thread>
 #include <unordered_map>
+#include <utils/config.h>
 #include <utils/events.h>
+#include <utils/messenger.h>
 #include <utils/thread_safe_queue.h>
 
 class FileManager {
 public:
+  FileManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
   void start_event_processing();
   Result<FileId, log_aggregator ::Error>
   add_file(const std::filesystem::path &);
@@ -23,6 +26,7 @@ private:
   FileId next_file_id_{0};
   // Shared mutex for read/write operations on maps.
   std::shared_mutex rw_mutex_;
+  Messenger messenger_;
   ThreadSafeQueue<FileProcessingEvent> event_queue_;
   std::jthread event_processor_thread_;
   // Storing shared_ptr instead of the object itself because it is required

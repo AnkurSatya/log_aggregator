@@ -7,9 +7,12 @@
 using namespace std;
 using namespace ftxui;
 
-UIManager::UIManager(FileManager &file_manager)
+UIManager::UIManager(FileManager &file_manager, shared_ptr<zmq::context_t> ctx,
+                     ZmqSocketConfig socket_config)
     : file_manager_(file_manager),
-      screen_{ftxui::ScreenInteractive::Fullscreen()} {
+      screen_{ftxui::ScreenInteractive::Fullscreen()},
+      messenger_{ctx, socket_config.sock_addr, socket_config.socket_type,
+                 socket_config.send_flags, false} {
   // Set the callback for click on close button for a pane.
   viewport_.set_callback_pane_close([&](FileId file_id) {
     file_manager_.remove_file(file_id);
