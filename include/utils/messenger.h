@@ -1,5 +1,10 @@
 #pragma once
+#include <functional>
+#include <google/protobuf/message.h>
+#include <thread>
 #include <zmq.hpp>
+
+using MessageCallback = std::function<void(const std::string &)>;
 
 class Messenger {
 public:
@@ -28,11 +33,27 @@ public:
       sock_.connect(sock_addr);
   }
 
-  void send(std::string_view message) {
-    sock_.send(zmq::message_t{std::move(message)}, send_flags_);
+  void send(const google::protobuf::Message &msg) {
+    // Calculates and allocates the exact size needed for the message.
+    zmq::message_t zmq_msg(msg.ByteSizeLong());
+    // Data is written directly into this allocated memory.
+    msg.SerializeToArray(zmq_msg.data(), zmq_msg.size());
+    sock_.send(std::move(zmq_msg), send_flags_);
   }
 
-  void recv() {}
+  void start_receiver(MessageCallback msg_callback) {
+    std::jthread([this, msg_callback]() {
+      while (true) {
+        zmq::message_t msg;
+        if (sock_.recv(msg)) {
+          msg_callback(
+              std::string(static_cast<char *>(msg.data()), msg.size()));
+        }
+      }
+    });
+  }
+
+  void stop_receiving() {};
 
 private:
   std::shared_ptr<zmq::context_t> ctx_;

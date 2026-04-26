@@ -12,7 +12,7 @@ public:
   operator=(const UIManager &) = delete; // copying reassignment not allowwed
 
   UIManager(FileManager &, std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
-  void process_file_events();
+  void process_file_events(const std::string &);
   void run();
 
 private:

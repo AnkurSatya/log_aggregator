@@ -7,18 +7,29 @@
 using namespace std;
 using namespace ftxui;
 
+// ToDo: Decouple from FileManager and use ZMQ PAIR communication instead.
 UIManager::UIManager(FileManager &file_manager, shared_ptr<zmq::context_t> ctx,
                      ZmqSocketConfig socket_config)
     : file_manager_(file_manager),
       screen_{ftxui::ScreenInteractive::Fullscreen()},
       messenger_{ctx, socket_config.sock_addr, socket_config.socket_type,
                  socket_config.send_flags, false} {
+  // ToDo: Remove the dependency on FileManager
   // Set the callback for click on close button for a pane.
   viewport_.set_callback_pane_close([&](FileId file_id) {
     file_manager_.remove_file(file_id);
     viewport_.remove_pane(file_id);
     // Wakes up the render loop immediately
     screen_.Post(Event::Custom);
+  });
+
+  // ToDo
+  //  1. When you want to stop this thread, just destroy the zmq ctx. This means
+  //  that the loop inside start_receiver() would break automatically when ctx
+  //  is destroyed.
+  messenger_.start_receiver([this](const std::string &bytes) {
+    // ToDo: Write a function for handling the ZMQ messages and then pass it
+    // here.
   });
 }
 
@@ -39,6 +50,8 @@ Component UIManager::compose() {
                     return vbox({header, separator(), body}) | border | flex;
                   });
 }
+
+void UIManager::process_file_events(const std::string &a) {};
 
 void UIManager::run() {
   auto path = filesystem::path("a.log");

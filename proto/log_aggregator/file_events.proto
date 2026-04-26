@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package log_aggregator.schema;
+
+message FileEvents {
+  message DataAvailable {
+    optional int32 id = 1;
+    optional string data = 2;
+  }
+
+  message FileError {
+    optional int32 id = 1;
+    optional string error = 2;
+  }
+
+  message FileClosed {
+    optional int32 id = 1;
+  }
+}

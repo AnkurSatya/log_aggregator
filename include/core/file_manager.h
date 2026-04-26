@@ -1,10 +1,10 @@
 #pragma once
+#include <core/events.h>
 #include <core/file_reader.h>
 #include <shared_mutex>
 #include <thread>
 #include <unordered_map>
 #include <utils/config.h>
-#include <utils/events.h>
 #include <utils/messenger.h>
 #include <utils/thread_safe_queue.h>
 
@@ -17,10 +17,10 @@ public:
   void remove_file(FileId);
   void process_file(std::stop_token, FileId id);
   void process_events(std::stop_token);
-  void handle(const Events::InotifyError &);
-  void handle(const Events::FileError &);
-  void handle(const Events::FileClosed &);
-  void handle(const Events::DataAvailable &);
+  void handle(const native::Events::InotifyError &);
+  void handle(const native::Events::FileError &);
+  void handle(const native::Events::FileClosed &);
+  void handle(const native::Events::DataAvailable &);
 
 private:
   FileId next_file_id_{0};

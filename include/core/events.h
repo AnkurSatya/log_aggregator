@@ -4,7 +4,7 @@
 #include <utils/types.h>
 #include <variant>
 
-namespace Events {
+namespace native::Events {
 
 struct DataAvailable {
   FileId id;
@@ -14,7 +14,6 @@ struct DataAvailable {
 struct FileError {
   FileId id;
   log_aggregator::Error error;
-  // std::error_code error;
 };
 
 struct FileClosed {
@@ -25,8 +24,8 @@ struct InotifyError {
   FileId id;
   std::error_code error_code;
 };
-} // namespace Events
+} // namespace native::Events
 
 using FileProcessingEvent =
-    std::variant<Events::DataAvailable, Events::FileError, Events::FileClosed,
-                 Events::InotifyError>;
+    std::variant<native::Events::DataAvailable, native::Events::FileError,
+                 native::Events::FileClosed, native::Events::InotifyError>;

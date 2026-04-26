@@ -9,8 +9,8 @@
 #include <unistd.h>
 
 using namespace std;
-using namespace Events;
 using namespace log_aggregator;
+namespace Events = native::Events;
 
 FileReader::FileReader(FileInfo file_info) noexcept
     : file_info_(std::move(file_info)) {
@@ -266,7 +266,7 @@ void FileReader::run(std::stop_token token,
     //  Error handling for inotify fd
     if (inotify_bytes_read <= 0) {
       if (inotify_bytes_read == -1 && errno != EAGAIN) {
-        InotifyError event{
+        Events::InotifyError event{
             .id = file_info_.file_id,
             .error_code = error_code(errno, system_category()),
         };
@@ -277,7 +277,7 @@ void FileReader::run(std::stop_token token,
       if (errno == EOF) {
         // This should not happen while reading inotify events unless the
         // Inotify FD has been closed.
-        InotifyError event{
+        Events::InotifyError event{
             .id = file_info_.file_id,
             .error_code = error_code(errno, system_category()),
         };
@@ -318,14 +318,14 @@ void FileReader::run(std::stop_token token,
       if (event->mask & IN_MODIFY || event->mask & IN_CLOSE_WRITE) {
         auto new_data{handle_file_modify()};
         if (!new_data) {
-          FileError file_error_event{.id = file_info_.file_id,
-                                     .error = new_data.error()};
+          Events::FileError file_error_event{.id = file_info_.file_id,
+                                             .error = new_data.error()};
           event_queue.push(std::move(file_error_event));
           return;
         }
 
-        DataAvailable data_event{.id = file_info_.file_id,
-                                 .data = std::move(new_data.value())};
+        Events::DataAvailable data_event{.id = file_info_.file_id,
+                                         .data = std::move(new_data.value())};
         event_queue.push(std::move(data_event));
       }
 
@@ -346,19 +346,19 @@ void FileReader::run(std::stop_token token,
       if (event->mask & IN_ATTRIB) {
         auto status{handle_file_attribute_changed()};
         if (!status) {
-          FileError file_error_event{.id = file_info_.file_id,
-                                     .error = status.error()};
+          Events::FileError file_error_event{.id = file_info_.file_id,
+                                             .error = status.error()};
           event_queue.push(std::move(file_error_event));
           return;
         }
 
         if (status.value() == EventHandlerStatus::STOP) {
-          FileClosed file_closed_event{.id = file_info_.file_id};
+          Events::FileClosed file_closed_event{.id = file_info_.file_id};
           event_queue.push(std::move(file_closed_event));
         }
         if (status.value() == EventHandlerStatus::ERROR) {
-          FileError file_error_event{.id = file_info_.file_id,
-                                     .error = status.error()};
+          Events::FileError file_error_event{.id = file_info_.file_id,
+                                             .error = status.error()};
           event_queue.push(std::move(file_error_event));
           return;
         }

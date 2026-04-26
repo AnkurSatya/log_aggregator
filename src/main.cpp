@@ -1,3 +1,4 @@
+#include "proto/log_aggregator/file_events.pb.h"
 #include <core/file_manager.h>
 #include <format>
 #include <iostream>
@@ -28,6 +29,12 @@ int main() {
   // 3. Create a threadsafe queue to be shared between UI and FileManager.
   // 4. Push a DataAvailable event from FileManager with empty data to trigger
   // Tile creation for the file in the UI.
+
+  schema::DataAvailable msg;
+  msg.set_id(1);
+  msg.set_data("dfff");
+  std::string serialized_data;
+  msg.SerializeToString(&serialized_data);
 
   auto shared_zmq_ctx{make_shared<zmq::context_t>()};
   ZmqSocketConfig socket_config{

@@ -1,9 +1,12 @@
+#include "proto/log_aggregator/file_events.pb.h"
 #include <core/file_manager.h>
 #include <format>
+#include <google/protobuf/message.h>
 #include <iostream>
 
 using namespace std;
 using namespace log_aggregator;
+namespace NativeEvents = native::Events;
 
 FileManager::FileManager(shared_ptr<zmq::context_t> ctx,
                          ZmqSocketConfig socket_config)
@@ -116,7 +119,7 @@ void FileManager::handle(const Events::InotifyError &event) {
 // 3. Check what needs to be done for other inotify events in file_reader.cpp --
 // DONE
 
-void FileManager::handle(const Events::FileError &event) {
+void FileManager::handle(const NativeEvents::FileError &event) {
   cout << "File Error event" << endl;
   cout << format("Error: {}: {}", event.error.code.message(),
                  event.error.message);
@@ -126,13 +129,17 @@ void FileManager::handle(const Events::FileError &event) {
   remove_file(event.id);
 }
 
-void FileManager::handle(const Events::FileClosed &event) {
+void FileManager::handle(const NativeEvents::FileClosed &event) {
   cout << "File Closed event" << endl;
   cout << "Removing the file ..." << endl;
   remove_file(event.id);
 }
 
-void FileManager::handle(const Events::DataAvailable &event) {
+void FileManager::handle(const NativeEvents::DataAvailable &event) {
   cout << "Data Available event" << endl;
   cout << "Data: " << event.data << endl;
+  schema::DataAvailable msg;
+  msg.set_id(event.id);
+  msg.set_data(std::move(event.data));
+  messenger_.send(std::move(msg));
 }

@@ -1,9 +1,9 @@
 #pragma once
+#include <core/events.h>
 #include <filesystem>
 #include <stop_token>
 #include <sys/inotify.h>
 #include <sys/stat.h>
-#include <utils/events.h>
 #include <utils/thread_safe_queue.h>
 #include <utils/types.h>
 #include <utils/unique_fd.h>
