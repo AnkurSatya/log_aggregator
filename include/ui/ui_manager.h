@@ -1,3 +1,4 @@
+#include "proto/log_aggregator/file_service.pb.h"
 #include <core/file_manager.h>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
@@ -11,17 +12,19 @@ public:
   UIManager &
   operator=(const UIManager &) = delete; // copying reassignment not allowwed
 
-  UIManager(FileManager &, std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
+  UIManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
   void process_file_events(const std::string &);
   void run();
 
 private:
-  FileManager &file_manager_;
   Viewport viewport_;
+  ftxui::Component root_container = ftxui::Container::Horizontal({});
   ftxui::ScreenInteractive screen_;
   Messenger messenger_;
 
-  void exit_application();
+  void request_terminate_monitoring(FileId);
+  void handle_file_events(log_aggregator::schema::FileEvents);
+  void handle_file_commands(log_aggregator::schema::FileCommands);
   ftxui::Component compose();
-  ftxui::Component root_container = ftxui::Container::Horizontal({});
+  void exit_application();
 };

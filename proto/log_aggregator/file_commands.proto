@@ -4,11 +4,16 @@ package log_aggregator.schema;
 
 message FileCommands {
   message AddFile {
-    int32 id = 1;
+    uint32 id = 1;
     string path = 2;
   }
 
   message CloseFile {
-    int32 id = 1;
+    uint32 id = 1;
+  }
+
+  oneof command_type {
+    AddFile add_file = 1;
+    CloseFile close_file = 2;
   }
 }

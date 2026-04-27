@@ -6,31 +6,77 @@
 
 using namespace std;
 using namespace ftxui;
+using namespace log_aggregator;
 
 // ToDo: Decouple from FileManager and use ZMQ PAIR communication instead.
-UIManager::UIManager(FileManager &file_manager, shared_ptr<zmq::context_t> ctx,
+UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
                      ZmqSocketConfig socket_config)
-    : file_manager_(file_manager),
-      screen_{ftxui::ScreenInteractive::Fullscreen()},
+    : screen_{ftxui::ScreenInteractive::Fullscreen()},
       messenger_{ctx, socket_config.sock_addr, socket_config.socket_type,
                  socket_config.send_flags, false} {
-  // ToDo: Remove the dependency on FileManager
-  // Set the callback for click on close button for a pane.
   viewport_.set_callback_pane_close([&](FileId file_id) {
-    file_manager_.remove_file(file_id);
+    request_terminate_monitoring(file_id);
     viewport_.remove_pane(file_id);
     // Wakes up the render loop immediately
     screen_.Post(Event::Custom);
   });
 
-  // ToDo
-  //  1. When you want to stop this thread, just destroy the zmq ctx. This means
+  //  When you want to stop this thread, just destroy the zmq ctx. This means
   //  that the loop inside start_receiver() would break automatically when ctx
   //  is destroyed.
   messenger_.start_receiver([this](const std::string &bytes) {
-    // ToDo: Write a function for handling the ZMQ messages and then pass it
-    // here.
+    schema::FileService envelope_event;
+    if (envelope_event.ParseFromString(bytes)) {
+      switch (envelope_event.payload_case()) {
+      case schema::FileService::kFileEvents:
+        this->handle_file_events(std::move(envelope_event.file_events()));
+        break;
+      case schema::FileService::kFileCommands:
+        this->handle_file_commands(std::move(envelope_event.file_commands()));
+        break;
+      case schema::FileService::PAYLOAD_NOT_SET:
+        cerr << "Unknown type of data received on ZMQ" << endl;
+        break;
+      }
+    }
   });
+}
+
+void UIManager::handle_file_events(
+    log_aggregator::schema::FileEvents file_event) {
+  switch (file_event.event_type_case()) {
+  case schema::FileEvents::kDataAvailable: {
+    viewport_.update_pane(file_event.data_available().id(),
+                          std::move(file_event.data_available().data()));
+    break;
+  }
+  case schema::FileEvents::kFileError: {
+    viewport_.update_pane(file_event.file_error().id(),
+                          std::move(file_event.file_error().error()));
+    break;
+  }
+  case schema::FileEvents::kFileClosed: {
+    viewport_.remove_pane(file_event.file_closed().id());
+    break;
+  }
+  case schema::FileEvents::EVENT_TYPE_NOT_SET:
+    cerr << "Unknown type of event received on ZMQ" << endl;
+    break;
+  }
+}
+void UIManager::handle_file_commands(
+    log_aggregator::schema::FileCommands file_command) {
+  switch (file_command.command_type_case()) {
+  case schema::FileCommands::kAddFile:
+    // this->handle_file_events(std::move(envelope_event.file_events()));
+    break;
+  case schema::FileCommands::kCloseFile:
+    // this->handle_file_commands(std::move(envelope_event.file_commands()));
+    break;
+  case schema::FileCommands::COMMAND_TYPE_NOT_SET:
+    cerr << "Unknown type of Command received on ZMQ" << endl;
+    break;
+  }
 }
 
 Component UIManager::compose() {
@@ -52,6 +98,12 @@ Component UIManager::compose() {
 }
 
 void UIManager::process_file_events(const std::string &a) {};
+
+void UIManager::request_terminate_monitoring(FileId id) {
+  schema::FileCommands::CloseFile msg;
+  msg.set_id(1);
+  messenger_.send(msg);
+}
 
 void UIManager::run() {
   auto path = filesystem::path("a.log");

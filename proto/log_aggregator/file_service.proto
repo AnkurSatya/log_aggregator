@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package log_aggregator.schema;
+
+import "proto/log_aggregator/file_events.proto";
+import "proto/log_aggregator/file_commands.proto";
+
+message FileService{
+    oneof payload {
+    FileEvents file_events = 1;
+    FileCommands file_commands = 2;
+    }
+}

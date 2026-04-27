@@ -1,4 +1,4 @@
-#include "proto/log_aggregator/file_events.pb.h"
+#include "proto/log_aggregator/file_service.pb.h"
 #include <core/file_manager.h>
 #include <format>
 #include <iostream>
@@ -30,7 +30,7 @@ int main() {
   // 4. Push a DataAvailable event from FileManager with empty data to trigger
   // Tile creation for the file in the UI.
 
-  schema::DataAvailable msg;
+  schema::FileEvents::DataAvailable msg;
   msg.set_id(1);
   msg.set_data("dfff");
   std::string serialized_data;
@@ -45,7 +45,7 @@ int main() {
 
   FileManager file_manager{shared_zmq_ctx, socket_config};
 
-  UIManager ui_manager(file_manager, shared_zmq_ctx, socket_config);
+  UIManager ui_manager(shared_zmq_ctx, socket_config);
   ui_manager.run();
 
   vector<std::string> file_paths = {

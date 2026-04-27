@@ -1,4 +1,4 @@
-#include "proto/log_aggregator/file_events.pb.h"
+#include "proto/log_aggregator/file_service.pb.h"
 #include <core/file_manager.h>
 #include <format>
 #include <google/protobuf/message.h>
@@ -105,7 +105,7 @@ void FileManager::process_events(stop_token token) {
   }
 }
 
-void FileManager::handle(const Events::InotifyError &event) {
+void FileManager::handle(const NativeEvents::InotifyError &event) {
   cerr << format("File ID: {}, error code: {}", event.id,
                  event.error_code.message())
        << endl;
@@ -138,7 +138,7 @@ void FileManager::handle(const NativeEvents::FileClosed &event) {
 void FileManager::handle(const NativeEvents::DataAvailable &event) {
   cout << "Data Available event" << endl;
   cout << "Data: " << event.data << endl;
-  schema::DataAvailable msg;
+  schema::FileEvents::DataAvailable msg;
   msg.set_id(event.id);
   msg.set_data(std::move(event.data));
   messenger_.send(std::move(msg));

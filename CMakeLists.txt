@@ -38,14 +38,17 @@ set(CPPZMQ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(cppzmq)
 
 find_package(Protobuf REQUIRED)
+SET(PROTO_IMPORT_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
+SET(PROTO_ROOT ${PROTO_IMPORT_ROOT}/proto)
 set(PROTO_FILES
-  proto/log_aggregator/file_events.proto
-  proto/log_aggregator/file_commands.proto
+  ${PROTO_ROOT}/log_aggregator/file_events.proto
+  ${PROTO_ROOT}/log_aggregator/file_commands.proto
+  ${PROTO_ROOT}/log_aggregator/file_service.proto
 )
 protobuf_generate(
   TARGET ${EXE_NAME}
   LANGUAGE cpp
-  IMPORT_DIRS  ${CMAKE_CURRENT_SOURCE_DIR}/proto
+  IMPORT_DIRS  ${PROTO_IMPORT_ROOT}
   PROTOS ${PROTO_FILES}
 )
 

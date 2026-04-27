@@ -44,16 +44,22 @@ public:
   void start_receiver(MessageCallback msg_callback) {
     std::jthread([this, msg_callback]() {
       while (true) {
-        zmq::message_t msg;
-        if (sock_.recv(msg)) {
-          msg_callback(
-              std::string(static_cast<char *>(msg.data()), msg.size()));
+        try {
+          zmq::message_t msg;
+          if (sock_.recv(msg)) {
+            msg_callback(
+                std::string(static_cast<char *>(msg.data()), msg.size()));
+          }
+        } catch (const zmq::error_t &e) {
+          if (e.num() == ETERM)
+            break;
+          else
+            std::cerr << "Error in messenger receiver: " << e.what()
+                      << std::endl;
         }
       }
     });
   }
-
-  void stop_receiving() {};
 
 private:
   std::shared_ptr<zmq::context_t> ctx_;

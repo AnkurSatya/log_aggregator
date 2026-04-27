@@ -4,16 +4,22 @@ package log_aggregator.schema;
 
 message FileEvents {
   message DataAvailable {
-    optional int32 id = 1;
-    optional string data = 2;
+    uint32 id = 1;
+    string data = 2;
   }
 
   message FileError {
-    optional int32 id = 1;
-    optional string error = 2;
+    uint32 id = 1;
+    string error = 2;
   }
 
   message FileClosed {
-    optional int32 id = 1;
+    uint32 id = 1;
+  }
+
+  oneof event_type {
+    DataAvailable data_available = 1;
+    FileError file_error = 2;
+    FileClosed file_closed = 3;
   }
 }
