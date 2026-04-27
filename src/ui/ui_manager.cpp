@@ -8,15 +8,14 @@ using namespace std;
 using namespace ftxui;
 using namespace log_aggregator;
 
-// ToDo: Decouple from FileManager and use ZMQ PAIR communication instead.
 UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
                      ZmqSocketConfig socket_config)
     : screen_{ftxui::ScreenInteractive::Fullscreen()},
       messenger_{ctx, socket_config.sock_addr, socket_config.socket_type,
                  socket_config.send_flags, false} {
   viewport_.set_callback_pane_close([&](FileId file_id) {
-    request_terminate_monitoring(file_id);
     viewport_.remove_pane(file_id);
+    request_terminate_monitoring(file_id);
     // Wakes up the render loop immediately
     screen_.Post(Event::Custom);
   });
@@ -32,7 +31,6 @@ UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
         this->handle_file_events(std::move(envelope_event.file_events()));
         break;
       case schema::FileService::kFileCommands:
-        this->handle_file_commands(std::move(envelope_event.file_commands()));
         break;
       case schema::FileService::PAYLOAD_NOT_SET:
         cerr << "Unknown type of data received on ZMQ" << endl;
@@ -64,20 +62,6 @@ void UIManager::handle_file_events(
     break;
   }
 }
-void UIManager::handle_file_commands(
-    log_aggregator::schema::FileCommands file_command) {
-  switch (file_command.command_type_case()) {
-  case schema::FileCommands::kAddFile:
-    // this->handle_file_events(std::move(envelope_event.file_events()));
-    break;
-  case schema::FileCommands::kCloseFile:
-    // this->handle_file_commands(std::move(envelope_event.file_commands()));
-    break;
-  case schema::FileCommands::COMMAND_TYPE_NOT_SET:
-    cerr << "Unknown type of Command received on ZMQ" << endl;
-    break;
-  }
-}
 
 Component UIManager::compose() {
   auto viewport_root = viewport_.get_root_container();
@@ -97,7 +81,12 @@ Component UIManager::compose() {
                   });
 }
 
-void UIManager::process_file_events(const std::string &a) {};
+void UIManager::request_file_monitoring(FileId, const string path) {
+  schema::FileCommands::AddFile msg;
+  msg.set_id(1);
+  msg.set_path(std::move(path));
+  messenger_.send(msg);
+}
 
 void UIManager::request_terminate_monitoring(FileId id) {
   schema::FileCommands::CloseFile msg;
@@ -106,20 +95,31 @@ void UIManager::request_terminate_monitoring(FileId id) {
 }
 
 void UIManager::run() {
-  auto path = filesystem::path("a.log");
-  auto result = viewport_.add_pane(1, path);
-  viewport_.update_pane(1, "Test log 1");
-  viewport_.update_pane(1, "Test log 2");
-  viewport_.update_pane(1, "Test log 3");
-
-  auto result2 = viewport_.add_pane(2, path);
-  viewport_.update_pane(2, "Test log 4");
-  viewport_.update_pane(2, "Test log 5");
-  viewport_.update_pane(2, "Test log 6");
+  auto path = filesystem::path("/home/ankur/projects/log_aggregator/app.log");
+  auto result = viewport_.add_pane(path);
   if (!result) {
     cout << result.error() << endl;
     exit(1);
   }
+  FileId file_id1 = result.value();
+  request_file_monitoring(file_id1, path.string());
+
+  // viewport_.update_pane(file_id1, "Test log 1");
+  // viewport_.update_pane(file_id1, "Test log 2");
+  // viewport_.update_pane(file_id1, "Test log 3");
+
+  auto path2 = filesystem::path("/home/ankur/projects/log_aggregator/app1.log");
+  auto result2 = viewport_.add_pane(path2);
+  if (!result2) {
+    cout << result.error() << endl;
+    exit(1);
+  }
+  FileId file_id2 = result2.value();
+  request_file_monitoring(file_id2, path.string());
+  // viewport_.update_pane(file_id2, "Test log 4");
+  // viewport_.update_pane(file_id2, "Test log 5");
+  // viewport_.update_pane(file_id2, "Test log 6");
+
   screen_.Loop(compose());
 }
 

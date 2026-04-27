@@ -19,7 +19,7 @@ public:
 
   Viewport();
   void set_callback_pane_close(std::function<void(FileId)>);
-  Result<void, std::string> add_pane(FileId, std::filesystem::path);
+  Result<FileId, std::string> add_pane(std::filesystem::path);
   void remove_pane(FileId);
   void update_pane(FileId, const std::string);
   ftxui::Component compose();
@@ -27,6 +27,7 @@ public:
   ftxui::Component get_root_container() { return root_container_; };
 
 private:
+  FileId next_file_id_{0};
   std::unordered_map<FileId, FilePane> panes_;
   std::unordered_map<FileId, ftxui::Component> views_;
   std::mutex pane_update_mutex_;

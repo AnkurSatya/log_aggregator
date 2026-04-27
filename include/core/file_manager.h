@@ -1,4 +1,5 @@
 #pragma once
+#include "proto/log_aggregator/file_service.pb.h"
 #include <core/events.h>
 #include <core/file_reader.h>
 #include <shared_mutex>
@@ -12,18 +13,8 @@ class FileManager {
 public:
   FileManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
   void start_event_processing();
-  Result<FileId, log_aggregator ::Error>
-  add_file(const std::filesystem::path &);
-  void remove_file(FileId);
-  void process_file(std::stop_token, FileId id);
-  void process_events(std::stop_token);
-  void handle(const native::Events::InotifyError &);
-  void handle(const native::Events::FileError &);
-  void handle(const native::Events::FileClosed &);
-  void handle(const native::Events::DataAvailable &);
 
 private:
-  FileId next_file_id_{0};
   // Shared mutex for read/write operations on maps.
   std::shared_mutex rw_mutex_;
   Messenger messenger_;
@@ -35,4 +26,18 @@ private:
   std::unordered_map<FileId, std::jthread> file_reader_threads_;
   // detached but tracked threads.
   std::vector<std::jthread> orphaned_threads;
+
+  Result<void, log_aggregator ::Error> add_file(FileId file_id,
+                                                const std::filesystem::path &);
+  void process_file(std::stop_token, FileId id);
+  void process_events(std::stop_token);
+  void remove_file(FileId);
+  void handle_file_commands(log_aggregator::schema::FileCommands);
+  void handle(const native::Events::InotifyError &);
+  void handle(const native::Events::FileError &);
+  void handle(const native::Events::FileClosed &);
+  void handle(const native::Events::DataAvailable &);
+  void report_data_available(FileId, const std::string);
+  void report_file_error(FileId, const std::string);
+  void report_file_closed(FileId);
 };

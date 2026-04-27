@@ -11,7 +11,8 @@ void Viewport::set_callback_pane_close(function<void(FileId)> callback) {
   callback_pane_close_ = std::move(callback);
 }
 
-Result<void, string> Viewport::add_pane(FileId file_id, filesystem::path path) {
+Result<FileId, string> Viewport::add_pane(filesystem::path path) {
+  FileId file_id = next_file_id_;
   auto pane = FilePane{.file_id = file_id, .path{std::move(path)}, .data{}};
   if (!panes_.try_emplace(file_id, std::move(pane)).second) {
     return unexpected(
@@ -25,7 +26,8 @@ Result<void, string> Viewport::add_pane(FileId file_id, filesystem::path path) {
         format("A window for file at {} already exists.", path.string()));
   }
   root_container_->Add(pane_view);
-  return {};
+  next_file_id_++;
+  return next_file_id_;
 }
 
 void Viewport::remove_pane(FileId file_id) {

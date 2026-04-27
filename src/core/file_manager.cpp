@@ -1,4 +1,3 @@
-#include "proto/log_aggregator/file_service.pb.h"
 #include <core/file_manager.h>
 #include <format>
 #include <google/protobuf/message.h>
@@ -14,12 +13,53 @@ FileManager::FileManager(shared_ptr<zmq::context_t> ctx,
                  socket_config.send_flags, true} {}
 
 void FileManager::start_event_processing() {
+  // Thread for processing events sent by File reader threads.
   event_processor_thread_ = jthread(&FileManager::process_events, this);
+
+  // Setting up event processor for events sent over ZMQ channel.
+  messenger_.start_receiver([this](const std::string &bytes) {
+    schema::FileService envelope_event;
+    if (envelope_event.ParseFromString(bytes)) {
+      switch (envelope_event.payload_case()) {
+      case schema::FileService::kFileEvents:
+        break;
+      case schema::FileService::kFileCommands:
+        this->handle_file_commands(std::move(envelope_event.file_commands()));
+        break;
+      case schema::FileService::PAYLOAD_NOT_SET:
+        cerr << "Unknown type of data received on ZMQ" << endl;
+        break;
+      }
+    }
+  });
 }
 
-Result<FileId, Error> FileManager::add_file(const std::filesystem::path &path) {
+void FileManager::handle_file_commands(
+    log_aggregator::schema::FileCommands file_command) {
+  switch (file_command.command_type_case()) {
+  case schema::FileCommands::kAddFile: {
+    FileId file_id = file_command.add_file().id();
+    auto result = add_file(file_id, file_command.add_file().path());
+    if (!result) {
+      string error = format("{}, {}", result.error().code.message(),
+                            result.error().message);
+      report_file_error(file_id, std::move(error));
+    }
+    break;
+  }
+  case schema::FileCommands::kCloseFile: {
+    remove_file(file_command.close_file().id());
+    break;
+  }
+  case schema::FileCommands::COMMAND_TYPE_NOT_SET:
+    cerr << "Unknown type of Command received on ZMQ" << endl;
+    break;
+  }
+}
+
+Result<void, Error> FileManager::add_file(FileId file_id,
+                                          const std::filesystem::path &path) {
   filesystem::path file_path{path};
-  FileId file_id = next_file_id_;
   auto file_reader = FileReader::open_file(file_id, file_path);
   if (!file_reader)
     return unexpected(Error{file_reader.error(), ""});
@@ -45,8 +85,7 @@ Result<FileId, Error> FileManager::add_file(const std::filesystem::path &path) {
           EEXIST, "A thread is already processing the file."));
     }
   }
-  next_file_id_++;
-  return file_id;
+  return {};
 }
 
 void FileManager::process_file(stop_token token, FileId id) {
@@ -111,6 +150,7 @@ void FileManager::handle(const NativeEvents::InotifyError &event) {
        << endl;
   cerr << "Closing the File ..." << endl;
   remove_file(event.id);
+  report_file_error(event.id, event.error_code.message());
 }
 
 // ToDo:
@@ -127,19 +167,38 @@ void FileManager::handle(const NativeEvents::FileError &event) {
   // decide if they want to close the file.
   cout << "Removing the file ..." << endl;
   remove_file(event.id);
+  report_file_error(event.id, event.error.code.message());
 }
 
 void FileManager::handle(const NativeEvents::FileClosed &event) {
   cout << "File Closed event" << endl;
   cout << "Removing the file ..." << endl;
   remove_file(event.id);
+  report_file_closed(event.id);
 }
 
 void FileManager::handle(const NativeEvents::DataAvailable &event) {
   cout << "Data Available event" << endl;
   cout << "Data: " << event.data << endl;
+  report_data_available(event.id, std::move(event.data));
+}
+
+void FileManager::report_data_available(FileId file_id, const string data) {
   schema::FileEvents::DataAvailable msg;
-  msg.set_id(event.id);
-  msg.set_data(std::move(event.data));
+  msg.set_id(file_id);
+  msg.set_data(std::move(data));
   messenger_.send(std::move(msg));
+}
+
+void FileManager::report_file_error(FileId file_id, const string error) {
+  schema::FileEvents::FileError msg;
+  msg.set_id(file_id);
+  msg.set_error(std::move(error));
+  messenger_.send(msg);
+}
+
+void FileManager::report_file_closed(FileId file_id) {
+  schema::FileEvents::FileClosed msg;
+  msg.set_id(file_id);
+  messenger_.send(msg);
 }
