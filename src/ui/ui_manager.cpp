@@ -12,32 +12,37 @@ UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
                      ZmqSocketConfig socket_config)
     : screen_{ftxui::ScreenInteractive::Fullscreen()},
       messenger_{ctx, socket_config.sock_addr, socket_config.socket_type,
-                 socket_config.send_flags, false} {
+                 socket_config.send_flags, socket_config.is_binder} {
+  ctx_ = ctx;
   viewport_.set_callback_pane_close([&](FileId file_id) {
     viewport_.remove_pane(file_id);
     request_terminate_monitoring(file_id);
     // Wakes up the render loop immediately
     screen_.Post(Event::Custom);
   });
+}
 
+void UIManager::start_event_processing(ZmqSocketConfig recv_socket_config) {
   //  When you want to stop this thread, just destroy the zmq ctx. This means
   //  that the loop inside start_receiver() would break automatically when ctx
   //  is destroyed.
-  messenger_.start_receiver([this](const std::string &bytes) {
-    schema::FileService envelope_event;
-    if (envelope_event.ParseFromString(bytes)) {
-      switch (envelope_event.payload_case()) {
-      case schema::FileService::kFileEvents:
-        this->handle_file_events(std::move(envelope_event.file_events()));
-        break;
-      case schema::FileService::kFileCommands:
-        break;
-      case schema::FileService::PAYLOAD_NOT_SET:
-        cerr << "Unknown type of data received on ZMQ" << endl;
-        break;
-      }
-    }
-  });
+  messenger_.start_receiver(
+      [this](const std::string &bytes) {
+        schema::FileService envelope_event;
+        if (envelope_event.ParseFromString(bytes)) {
+          switch (envelope_event.payload_case()) {
+          case schema::FileService::kFileEvents:
+            this->handle_file_events(std::move(envelope_event.file_events()));
+            break;
+          case schema::FileService::kFileCommands:
+            break;
+          case schema::FileService::PAYLOAD_NOT_SET:
+            cerr << "Unknown type of data received on ZMQ" << endl;
+            break;
+          }
+        }
+      },
+      ctx_, recv_socket_config);
 }
 
 void UIManager::handle_file_events(

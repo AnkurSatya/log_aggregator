@@ -1,6 +1,4 @@
-#include "proto/log_aggregator/file_service.pb.h"
 #include <core/file_manager.h>
-#include <format>
 #include <iostream>
 #include <ui/ui_manager.h>
 #include <utils/config.h>
@@ -23,38 +21,31 @@ void signal_handler(int signal) {
 }
 
 int main() {
-  // ToDo
-  // 1. Create a UI class.
-  // 2. Initialise it here and launch the UI::run() in a thread.
-  // 3. Create a threadsafe queue to be shared between UI and FileManager.
-  // 4. Push a DataAvailable event from FileManager with empty data to trigger
-  // Tile creation for the file in the UI.
-
   auto shared_zmq_ctx{make_shared<zmq::context_t>()};
-  ZmqSocketConfig socket_config{
-      .sock_addr = "inproc://log_aggregator",
+
+  ZmqSocketConfig core_socket_cfg{
+      .sock_addr = "inproc://log_aggregator.core",
       .socket_type = zmq::socket_type::pair,
       .send_flags = zmq::send_flags::dontwait,
+      .is_binder = true,
   };
+  FileManager file_manager{shared_zmq_ctx, core_socket_cfg};
+  cout << "FileManager successfully instantiated" << endl;
 
-  FileManager file_manager{shared_zmq_ctx, socket_config};
-  file_manager.start_event_processing();
+  ZmqSocketConfig ui_socket_cfg{
+      .sock_addr = "inproc://log_aggregator.ui",
+      .socket_type = zmq::socket_type::pair,
+      .send_flags = zmq::send_flags::dontwait,
+      .is_binder = true,
+  };
+  UIManager ui_manager(shared_zmq_ctx, ui_socket_cfg);
+  cout << "UIManager successfully instantiated" << endl;
 
-  UIManager ui_manager(shared_zmq_ctx, socket_config);
+  file_manager.start_event_processing(ui_socket_cfg);
+  cout << "File manager setup done" << endl;
+  ui_manager.start_event_processing(core_socket_cfg);
   ui_manager.run();
-
-  // vector<std::string> file_paths = {
-  //     "/home/ankur/projects/log_aggregator/app.log",
-  //     "/home/ankur/projects/log_aggregator/app1.log"};
-
-  // for (const auto &path : file_paths) {
-  //   Result<FileId, Error> file_id = file_manager.add_file(path);
-  //   if (!file_id) {
-  //     cerr << format("Failed to open file {}: {}, {}", path,
-  //                    file_id.error().code.message(), file_id.error().message)
-  //          << endl;
-  //   }
-  // }
+  cout << "UI manager setup done" << endl;
 
   // Temporary fix to let the threads run until user stops the application.
   unique_lock<mutex> lock(shutdown_mtx);

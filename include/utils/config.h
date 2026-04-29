@@ -6,4 +6,5 @@ struct ZmqSocketConfig {
   std::string sock_addr;
   zmq::socket_type socket_type;
   zmq::send_flags send_flags;
+  bool is_binder;
 };

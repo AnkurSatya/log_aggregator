@@ -12,12 +12,13 @@
 class FileManager {
 public:
   FileManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
-  void start_event_processing();
+  void start_event_processing(ZmqSocketConfig);
 
 private:
   // Shared mutex for read/write operations on maps.
   std::shared_mutex rw_mutex_;
   Messenger messenger_;
+  std::shared_ptr<zmq::context_t> ctx_;
   ThreadSafeQueue<FileProcessingEvent> event_queue_;
   std::jthread event_processor_thread_;
   // Storing shared_ptr instead of the object itself because it is required

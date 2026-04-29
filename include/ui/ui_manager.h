@@ -13,6 +13,7 @@ public:
   operator=(const UIManager &) = delete; // copying reassignment not allowwed
 
   UIManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
+  void start_event_processing(ZmqSocketConfig);
   void run();
 
 private:
@@ -20,6 +21,7 @@ private:
   ftxui::Component root_container = ftxui::Container::Horizontal({});
   ftxui::ScreenInteractive screen_;
   Messenger messenger_;
+  std::shared_ptr<zmq::context_t> ctx_;
 
   void request_file_monitoring(FileId, const std::string);
   void request_terminate_monitoring(FileId);

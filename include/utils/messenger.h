@@ -2,6 +2,7 @@
 #include <functional>
 #include <google/protobuf/message.h>
 #include <thread>
+#include <utils/config.h>
 #include <zmq.hpp>
 
 using MessageCallback = std::function<void(const std::string &)>;
@@ -22,7 +23,7 @@ public:
       : ctx_{std::move(ctx)}, sock_addr_{std::move(sock_addr)},
         send_flags_(send_flags), sock_{zmq::socket_t(*ctx_, socket_type)} {
 
-    // To prevent the the thread that closes the ZMQ socket created here from
+    // To prevent the thread, that closes the ZMQ socket created here, from
     // hanging. In its absence, ZMQ would block the thread from closing until
     // all the messages have been removed from the queue or a timeout has
     // reached. Setting linger to 0 gives a snappy exit.
@@ -41,24 +42,35 @@ public:
     sock_.send(std::move(zmq_msg), send_flags_);
   }
 
-  void start_receiver(MessageCallback msg_callback) {
-    std::jthread([this, msg_callback]() {
-      while (true) {
-        try {
-          zmq::message_t msg;
-          if (sock_.recv(msg)) {
-            msg_callback(
-                std::string(static_cast<char *>(msg.data()), msg.size()));
+  void start_receiver(MessageCallback msg_callback,
+                      std::shared_ptr<zmq::context_t> recv_ctx,
+                      ZmqSocketConfig recv_socket_cfg) {
+    receiver_thread_ =
+        std::jthread([this, msg_callback, recv_socket_cfg, recv_ctx] {
+          // Creating a separate socket for receiving messages.
+          auto recv_socket =
+              zmq::socket_t(*recv_ctx, recv_socket_cfg.socket_type);
+          recv_socket.set(zmq::sockopt::linger, 0);
+          recv_socket.connect(recv_socket_cfg.sock_addr);
+
+          while (true) {
+            std::cout << "In message receiver ..." << std::endl;
+            try {
+              zmq::message_t msg;
+              if (sock_.recv(msg)) {
+                msg_callback(
+                    std::string(static_cast<char *>(msg.data()), msg.size()));
+              }
+            } catch (const zmq::error_t &e) {
+              if (e.num() == ETERM) {
+                std::cerr << e.what() << std::endl;
+                break;
+              } else
+                std::cerr << "Error in messenger receiver: " << e.what()
+                          << std::endl;
+            }
           }
-        } catch (const zmq::error_t &e) {
-          if (e.num() == ETERM)
-            break;
-          else
-            std::cerr << "Error in messenger receiver: " << e.what()
-                      << std::endl;
-        }
-      }
-    });
+        });
   }
 
 private:
@@ -66,4 +78,5 @@ private:
   std::string sock_addr_;
   zmq::send_flags send_flags_{zmq::send_flags::dontwait};
   zmq::socket_t sock_;
+  std::jthread receiver_thread_;
 };

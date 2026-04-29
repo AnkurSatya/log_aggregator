@@ -10,28 +10,32 @@ namespace NativeEvents = native::Events;
 FileManager::FileManager(shared_ptr<zmq::context_t> ctx,
                          ZmqSocketConfig socket_config)
     : messenger_{ctx, socket_config.sock_addr, socket_config.socket_type,
-                 socket_config.send_flags, true} {}
+                 socket_config.send_flags, socket_config.is_binder} {
+  ctx_ = ctx;
+}
 
-void FileManager::start_event_processing() {
+void FileManager::start_event_processing(ZmqSocketConfig recv_socket_config) {
   // Thread for processing events sent by File reader threads.
   event_processor_thread_ = jthread(&FileManager::process_events, this);
-
   // Setting up event processor for events sent over ZMQ channel.
-  messenger_.start_receiver([this](const std::string &bytes) {
-    schema::FileService envelope_event;
-    if (envelope_event.ParseFromString(bytes)) {
-      switch (envelope_event.payload_case()) {
-      case schema::FileService::kFileEvents:
-        break;
-      case schema::FileService::kFileCommands:
-        this->handle_file_commands(std::move(envelope_event.file_commands()));
-        break;
-      case schema::FileService::PAYLOAD_NOT_SET:
-        cerr << "Unknown type of data received on ZMQ" << endl;
-        break;
-      }
-    }
-  });
+  messenger_.start_receiver(
+      [this](const std::string &bytes) {
+        schema::FileService envelope_event;
+        if (envelope_event.ParseFromString(bytes)) {
+          switch (envelope_event.payload_case()) {
+          case schema::FileService::kFileEvents:
+            break;
+          case schema::FileService::kFileCommands:
+            this->handle_file_commands(
+                std::move(envelope_event.file_commands()));
+            break;
+          case schema::FileService::PAYLOAD_NOT_SET:
+            cerr << "Unknown type of data received on ZMQ" << endl;
+            break;
+          }
+        }
+      },
+      ctx_, recv_socket_config);
 }
 
 void FileManager::handle_file_commands(
