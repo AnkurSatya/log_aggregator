@@ -36,8 +36,6 @@ MessageCallback FileManager::recv_socket_callback() {
         cerr << "Unknown type of data received on ZMQ" << endl;
         break;
       }
-    } else {
-      cerr << "Could not parse: " << bytes << endl;
     }
   };
 }
@@ -185,27 +183,32 @@ void FileManager::handle(const NativeEvents::DataAvailable &event) {
 }
 
 void FileManager::report_data_available(FileId file_id, const string data) {
-  schema::FileEvents event;
-  auto *data_event = event.mutable_data_available();
+  schema::FileService envelope;
+  schema::FileEvents *event = envelope.mutable_file_events();
+
+  auto *data_event = event->mutable_data_available();
   data_event->set_id(file_id);
   data_event->set_data(std::move(data));
 
-  messenger_.send(std::move(event));
+  messenger_.send(std::move(envelope));
 }
 
 void FileManager::report_file_error(FileId file_id, const string error) {
-  schema::FileEvents event;
-  auto *error_event = event.mutable_file_error();
+  schema::FileService envelope;
+  schema::FileEvents *event = envelope.mutable_file_events();
+
+  auto *error_event = event->mutable_file_error();
   error_event->set_id(file_id);
   error_event->set_error(std::move(error));
 
-  messenger_.send(std::move(event));
+  messenger_.send(std::move(envelope));
 }
 
 void FileManager::report_file_closed(FileId file_id) {
-  schema::FileEvents event;
-  auto *error_event = event.mutable_file_closed();
+  schema::FileService envelope;
+  schema::FileEvents *event = envelope.mutable_file_events();
+  auto *error_event = event->mutable_file_closed();
   error_event->set_id(file_id);
 
-  messenger_.send(std::move(event));
+  messenger_.send(std::move(envelope));
 }

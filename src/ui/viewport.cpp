@@ -1,8 +1,10 @@
+#include <algorithm>
 #include <ftxui/component/component.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <iostream>
+#include <iterator>
 #include <mutex>
 #include <ui/viewport.h>
-
 using namespace std;
 using namespace ftxui;
 
@@ -50,6 +52,12 @@ void Viewport::update_pane(FileId file_id, const string new_data) {
   if (it != panes_.end()) {
     it->second.data.push_back(new_data);
   }
+
+  // cout << "Pane data ....." << endl;
+  // for (const auto &[id, pane] : panes_) {
+  //   std::copy(pane.data.begin(), pane.data.end(),
+  //             ostream_iterator<string>(cout, "\n"));
+  // }
 }
 
 Component Viewport::compose_pane(FileId file_id) {
