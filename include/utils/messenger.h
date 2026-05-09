@@ -17,66 +17,74 @@ public:
   Messenger &
   operator=(Messenger &) = delete; // Copying reassignment is not allowed
 
-  Messenger(std::shared_ptr<zmq::context_t> ctx, std::string sock_addr,
-            zmq::socket_type socket_type, zmq::send_flags send_flags,
-            bool is_binder)
-      : ctx_{std::move(ctx)}, sock_addr_{std::move(sock_addr)},
-        send_flags_(send_flags), sock_{zmq::socket_t(*ctx_, socket_type)} {
-
-    // To prevent the thread, that closes the ZMQ socket created here, from
-    // hanging. In its absence, ZMQ would block the thread from closing until
-    // all the messages have been removed from the queue or a timeout has
-    // reached. Setting linger to 0 gives a snappy exit.
-    sock_.set(zmq::sockopt::linger, 0);
-    if (is_binder)
-      sock_.bind(sock_addr_);
-    else
-      sock_.connect(sock_addr);
+  Messenger(std::shared_ptr<zmq::context_t> ctx, ZmqSocketConfig recv_config,
+            MessageCallback recv_callback)
+      : recv_config_{std::move(recv_config)}, ctx_{std::move(ctx)},
+        recv_sock_{zmq::socket_t(*ctx_, recv_config.socket_type)} {
+    recv_sock_.bind(recv_config_.socket_addr);
+    recv_sock_.set(zmq::sockopt::linger, 0);
+    start_receiver(recv_callback);
   }
 
-  void send(const google::protobuf::Message &msg) {
+  void setup_sender(ZmqSocketConfig send_config) {
+    send_config_ = send_config;
+    send_sock_ =
+        std::make_unique<zmq::socket_t>(*ctx_, send_config.socket_type);
+    send_sock_->connect(send_config.socket_addr);
+    send_sock_->set(zmq::sockopt::linger, 0);
+  }
+
+  void send(google::protobuf::Message &&msg) {
     // Calculates and allocates the exact size needed for the message.
     zmq::message_t zmq_msg(msg.ByteSizeLong());
     // Data is written directly into this allocated memory.
     msg.SerializeToArray(zmq_msg.data(), zmq_msg.size());
-    sock_.send(std::move(zmq_msg), send_flags_);
+    // std::cout << "Sending message ---" << std::endl;
+    // msg.PrintDebugString();
+
+    auto send_flags = zmq::send_flags::none;
+    if (send_config_) {
+      send_flags = send_config_->send_flags;
+    }
+    send_sock_->send(std::move(zmq_msg), send_flags);
   }
 
-  void start_receiver(MessageCallback msg_callback,
-                      std::shared_ptr<zmq::context_t> recv_ctx,
-                      ZmqSocketConfig recv_socket_cfg) {
-    receiver_thread_ =
-        std::jthread([this, msg_callback, recv_socket_cfg, recv_ctx] {
-          // Creating a separate socket for receiving messages.
-          auto recv_socket =
-              zmq::socket_t(*recv_ctx, recv_socket_cfg.socket_type);
-          recv_socket.set(zmq::sockopt::linger, 0);
-          recv_socket.connect(recv_socket_cfg.sock_addr);
-
-          while (true) {
-            std::cout << "In message receiver ..." << std::endl;
-            try {
-              zmq::message_t msg;
-              if (sock_.recv(msg)) {
-                msg_callback(
-                    std::string(static_cast<char *>(msg.data()), msg.size()));
-              }
-            } catch (const zmq::error_t &e) {
-              if (e.num() == ETERM) {
-                std::cerr << e.what() << std::endl;
-                break;
-              } else
-                std::cerr << "Error in messenger receiver: " << e.what()
-                          << std::endl;
-            }
+  void start_receiver(MessageCallback msg_callback) {
+    receiver_thread_ = std::jthread([this, msg_callback] {
+      while (true) {
+        try {
+          zmq::message_t msg;
+          if (this->recv_sock_.recv(msg)) {
+            msg_callback(
+                std::string(static_cast<char *>(msg.data()), msg.size()));
           }
-        });
+        } catch (const zmq::error_t &e) {
+          if (e.num() == ETERM) {
+            std::cerr << e.what() << std::endl;
+            break;
+          } else
+            std::cerr << "Error in messenger receiver: " << e.what()
+                      << std::endl;
+        }
+      }
+    });
+  }
+
+  ~Messenger() {
+    recv_sock_.close();
+    send_sock_->close();
   }
 
 private:
+  ZmqSocketConfig recv_config_;
   std::shared_ptr<zmq::context_t> ctx_;
-  std::string sock_addr_;
-  zmq::send_flags send_flags_{zmq::send_flags::dontwait};
-  zmq::socket_t sock_;
+  zmq::socket_t recv_sock_;
   std::jthread receiver_thread_;
+
+  // Optional is used so that the config can be set lazily.
+  std::optional<ZmqSocketConfig> send_config_;
+  // Unique ptr is needed so that the actual socket can be created lazily(after
+  // Messenger object initialisation), otherwise send_sock_ would have to be
+  // initialised during the instantiation of Messenger.
+  std::unique_ptr<zmq::socket_t> send_sock_;
 };

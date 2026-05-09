@@ -1,5 +1,4 @@
 #include <core/file_manager.h>
-#include <iostream>
 #include <ui/ui_manager.h>
 #include <utils/config.h>
 #include <utils/messenger.h>
@@ -20,32 +19,36 @@ void signal_handler(int signal) {
   shutdown_cv.notify_all();
 }
 
+// ToDo:
+//  1. Think more about the send flags:
+//  a. Either they should be none but this might lead to a thread being stuck.
+// b. Or it should be dontwait but then proper care should be taken in the
+// beginning to ensure that clients are connected to the server before
+// server(like UIManager) sends a message to the client(FileManager) and same
+// goes for FIleManager -> UIManager.
+
 int main() {
   auto shared_zmq_ctx{make_shared<zmq::context_t>()};
 
   ZmqSocketConfig core_socket_cfg{
-      .sock_addr = "inproc://log_aggregator.core",
+      .socket_addr = "inproc://log_aggregator.core",
       .socket_type = zmq::socket_type::pair,
-      .send_flags = zmq::send_flags::dontwait,
-      .is_binder = true,
+      .send_flags = zmq::send_flags::none,
   };
   FileManager file_manager{shared_zmq_ctx, core_socket_cfg};
-  cout << "FileManager successfully instantiated" << endl;
 
   ZmqSocketConfig ui_socket_cfg{
-      .sock_addr = "inproc://log_aggregator.ui",
+      .socket_addr = "inproc://log_aggregator.ui",
       .socket_type = zmq::socket_type::pair,
-      .send_flags = zmq::send_flags::dontwait,
-      .is_binder = true,
+      .send_flags = zmq::send_flags::none,
   };
   UIManager ui_manager(shared_zmq_ctx, ui_socket_cfg);
-  cout << "UIManager successfully instantiated" << endl;
 
-  file_manager.start_event_processing(ui_socket_cfg);
-  cout << "File manager setup done" << endl;
-  ui_manager.start_event_processing(core_socket_cfg);
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+
+  file_manager.setup_message_sender(ui_socket_cfg);
+  ui_manager.setup_message_sender(core_socket_cfg);
   ui_manager.run();
-  cout << "UI manager setup done" << endl;
 
   // Temporary fix to let the threads run until user stops the application.
   unique_lock<mutex> lock(shutdown_mtx);

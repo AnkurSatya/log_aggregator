@@ -27,7 +27,7 @@ Result<FileId, string> Viewport::add_pane(filesystem::path path) {
   }
   root_container_->Add(pane_view);
   next_file_id_++;
-  return next_file_id_;
+  return file_id;
 }
 
 void Viewport::remove_pane(FileId file_id) {

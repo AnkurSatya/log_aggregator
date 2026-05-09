@@ -35,7 +35,7 @@ FileReader::open_file(const FileId file_id, const filesystem::path &file_path) {
   auto read_offset = jump_to_offset(fd.get(), 0, SEEK_END);
   if (!read_offset)
     return unexpected(read_offset.error());
-  cout << format("Initial read offset {}", read_offset.value()) << endl;
+  // cout << format("Initial read offset {}", read_offset.value()) << endl;
 
   // // Inotify registration
   auto inotify_fd = register_with_inotify(IN_CLOEXEC | IN_NONBLOCK);

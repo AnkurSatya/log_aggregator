@@ -7,35 +7,39 @@ using namespace std;
 using namespace log_aggregator;
 namespace NativeEvents = native::Events;
 
+// ToDo: Add topic names and pass it to messenger so that it only subscribes to
+// those topics.
 FileManager::FileManager(shared_ptr<zmq::context_t> ctx,
-                         ZmqSocketConfig socket_config)
-    : messenger_{ctx, socket_config.sock_addr, socket_config.socket_type,
-                 socket_config.send_flags, socket_config.is_binder} {
+                         ZmqSocketConfig recv_socket_config)
+    : messenger_{ctx, recv_socket_config, recv_socket_callback()} {
   ctx_ = ctx;
-}
-
-void FileManager::start_event_processing(ZmqSocketConfig recv_socket_config) {
   // Thread for processing events sent by File reader threads.
   event_processor_thread_ = jthread(&FileManager::process_events, this);
+}
+
+void FileManager::setup_message_sender(ZmqSocketConfig send_socket_config) {
+  messenger_.setup_sender(send_socket_config);
+}
+
+MessageCallback FileManager::recv_socket_callback() {
   // Setting up event processor for events sent over ZMQ channel.
-  messenger_.start_receiver(
-      [this](const std::string &bytes) {
-        schema::FileService envelope_event;
-        if (envelope_event.ParseFromString(bytes)) {
-          switch (envelope_event.payload_case()) {
-          case schema::FileService::kFileEvents:
-            break;
-          case schema::FileService::kFileCommands:
-            this->handle_file_commands(
-                std::move(envelope_event.file_commands()));
-            break;
-          case schema::FileService::PAYLOAD_NOT_SET:
-            cerr << "Unknown type of data received on ZMQ" << endl;
-            break;
-          }
-        }
-      },
-      ctx_, recv_socket_config);
+  return [this](const std::string &bytes) {
+    schema::FileService envelope_event;
+    if (envelope_event.ParseFromString(bytes)) {
+      switch (envelope_event.payload_case()) {
+      case schema::FileService::kFileEvents:
+        break;
+      case schema::FileService::kFileCommands:
+        this->handle_file_commands(std::move(envelope_event.file_commands()));
+        break;
+      case schema::FileService::PAYLOAD_NOT_SET:
+        cerr << "Unknown type of data received on ZMQ" << endl;
+        break;
+      }
+    } else {
+      cerr << "Could not parse: " << bytes << endl;
+    }
+  };
 }
 
 void FileManager::handle_file_commands(
@@ -157,12 +161,6 @@ void FileManager::handle(const NativeEvents::InotifyError &event) {
   report_file_error(event.id, event.error_code.message());
 }
 
-// ToDo:
-// 1. Refactor file_reader.run() and push events to the message queue -- DONE
-// 2. Implement handle() for all the types of EventProcessing variant. -- DONE
-// 3. Check what needs to be done for other inotify events in file_reader.cpp --
-// DONE
-
 void FileManager::handle(const NativeEvents::FileError &event) {
   cout << "File Error event" << endl;
   cout << format("Error: {}: {}", event.error.code.message(),
@@ -182,27 +180,32 @@ void FileManager::handle(const NativeEvents::FileClosed &event) {
 }
 
 void FileManager::handle(const NativeEvents::DataAvailable &event) {
-  cout << "Data Available event" << endl;
-  cout << "Data: " << event.data << endl;
+  // cout << "Data Available event: " << event.data << endl;
   report_data_available(event.id, std::move(event.data));
 }
 
 void FileManager::report_data_available(FileId file_id, const string data) {
-  schema::FileEvents::DataAvailable msg;
-  msg.set_id(file_id);
-  msg.set_data(std::move(data));
-  messenger_.send(std::move(msg));
+  schema::FileEvents event;
+  auto *data_event = event.mutable_data_available();
+  data_event->set_id(file_id);
+  data_event->set_data(std::move(data));
+
+  messenger_.send(std::move(event));
 }
 
 void FileManager::report_file_error(FileId file_id, const string error) {
-  schema::FileEvents::FileError msg;
-  msg.set_id(file_id);
-  msg.set_error(std::move(error));
-  messenger_.send(msg);
+  schema::FileEvents event;
+  auto *error_event = event.mutable_file_error();
+  error_event->set_id(file_id);
+  error_event->set_error(std::move(error));
+
+  messenger_.send(std::move(event));
 }
 
 void FileManager::report_file_closed(FileId file_id) {
-  schema::FileEvents::FileClosed msg;
-  msg.set_id(file_id);
-  messenger_.send(msg);
+  schema::FileEvents event;
+  auto *error_event = event.mutable_file_closed();
+  error_event->set_id(file_id);
+
+  messenger_.send(std::move(event));
 }

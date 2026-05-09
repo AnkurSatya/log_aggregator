@@ -12,7 +12,7 @@
 class FileManager {
 public:
   FileManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
-  void start_event_processing(ZmqSocketConfig);
+  void setup_message_sender(ZmqSocketConfig);
 
 private:
   // Shared mutex for read/write operations on maps.
@@ -41,4 +41,5 @@ private:
   void report_data_available(FileId, const std::string);
   void report_file_error(FileId, const std::string);
   void report_file_closed(FileId);
+  MessageCallback recv_socket_callback();
 };

@@ -13,7 +13,7 @@ public:
   operator=(const UIManager &) = delete; // copying reassignment not allowwed
 
   UIManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
-  void start_event_processing(ZmqSocketConfig);
+  void setup_message_sender(ZmqSocketConfig);
   void run();
 
 private:
@@ -26,6 +26,7 @@ private:
   void request_file_monitoring(FileId, const std::string);
   void request_terminate_monitoring(FileId);
   void handle_file_events(log_aggregator::schema::FileEvents);
+  MessageCallback recv_socket_callback();
   ftxui::Component compose();
   void exit_application();
 };

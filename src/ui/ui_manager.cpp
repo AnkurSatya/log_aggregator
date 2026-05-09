@@ -9,10 +9,9 @@ using namespace ftxui;
 using namespace log_aggregator;
 
 UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
-                     ZmqSocketConfig socket_config)
+                     ZmqSocketConfig recv_socket_config)
     : screen_{ftxui::ScreenInteractive::Fullscreen()},
-      messenger_{ctx, socket_config.sock_addr, socket_config.socket_type,
-                 socket_config.send_flags, socket_config.is_binder} {
+      messenger_{ctx, recv_socket_config, recv_socket_callback()} {
   ctx_ = ctx;
   viewport_.set_callback_pane_close([&](FileId file_id) {
     viewport_.remove_pane(file_id);
@@ -22,27 +21,26 @@ UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
   });
 }
 
-void UIManager::start_event_processing(ZmqSocketConfig recv_socket_config) {
-  //  When you want to stop this thread, just destroy the zmq ctx. This means
-  //  that the loop inside start_receiver() would break automatically when ctx
-  //  is destroyed.
-  messenger_.start_receiver(
-      [this](const std::string &bytes) {
-        schema::FileService envelope_event;
-        if (envelope_event.ParseFromString(bytes)) {
-          switch (envelope_event.payload_case()) {
-          case schema::FileService::kFileEvents:
-            this->handle_file_events(std::move(envelope_event.file_events()));
-            break;
-          case schema::FileService::kFileCommands:
-            break;
-          case schema::FileService::PAYLOAD_NOT_SET:
-            cerr << "Unknown type of data received on ZMQ" << endl;
-            break;
-          }
-        }
-      },
-      ctx_, recv_socket_config);
+MessageCallback UIManager::recv_socket_callback() {
+  return [this](const std::string &bytes) {
+    schema::FileService envelope_event;
+    if (envelope_event.ParseFromString(bytes)) {
+      switch (envelope_event.payload_case()) {
+      case schema::FileService::kFileEvents:
+        this->handle_file_events(std::move(envelope_event.file_events()));
+        break;
+      case schema::FileService::kFileCommands:
+        break;
+      case schema::FileService::PAYLOAD_NOT_SET:
+        cerr << "Unknown type of data received on ZMQ" << endl;
+        break;
+      }
+    }
+  };
+}
+
+void UIManager::setup_message_sender(ZmqSocketConfig send_socket_config) {
+  messenger_.setup_sender(send_socket_config);
 }
 
 void UIManager::handle_file_events(
@@ -86,17 +84,28 @@ Component UIManager::compose() {
                   });
 }
 
-void UIManager::request_file_monitoring(FileId, const string path) {
-  schema::FileCommands::AddFile msg;
-  msg.set_id(1);
-  msg.set_path(std::move(path));
-  messenger_.send(msg);
+void UIManager::request_file_monitoring(FileId id, const string path) {
+  // The following way of creating protobuf messages is preferred and safer
+  // since envelope will have the ownership(allocated on the heap) and can be
+  // easily moved.
+  schema::FileService envelope;
+  schema::FileCommands *command = envelope.mutable_file_commands();
+
+  auto *add_file = command->mutable_add_file();
+  add_file->set_id(id);
+  add_file->set_path(std::move(path));
+
+  messenger_.send(std::move(envelope));
 }
 
 void UIManager::request_terminate_monitoring(FileId id) {
-  schema::FileCommands::CloseFile msg;
-  msg.set_id(1);
-  messenger_.send(msg);
+  schema::FileService envelope;
+  schema::FileCommands *command = envelope.mutable_file_commands();
+
+  auto *close_file = command->mutable_close_file();
+  close_file->set_id(id);
+
+  messenger_.send(std::move(envelope));
 }
 
 void UIManager::run() {
@@ -109,21 +118,14 @@ void UIManager::run() {
   FileId file_id1 = result.value();
   request_file_monitoring(file_id1, path.string());
 
-  // viewport_.update_pane(file_id1, "Test log 1");
-  // viewport_.update_pane(file_id1, "Test log 2");
-  // viewport_.update_pane(file_id1, "Test log 3");
-
   auto path2 = filesystem::path("/home/ankur/projects/log_aggregator/app1.log");
   auto result2 = viewport_.add_pane(path2);
   if (!result2) {
-    cout << result.error() << endl;
+    cout << result2.error() << endl;
     exit(1);
   }
   FileId file_id2 = result2.value();
-  request_file_monitoring(file_id2, path.string());
-  // viewport_.update_pane(file_id2, "Test log 4");
-  // viewport_.update_pane(file_id2, "Test log 5");
-  // viewport_.update_pane(file_id2, "Test log 6");
+  request_file_monitoring(file_id2, path2.string());
 
   screen_.Loop(compose());
 }
