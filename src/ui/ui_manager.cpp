@@ -64,6 +64,8 @@ void UIManager::handle_file_events(
     cerr << "Unknown type of event received on ZMQ" << endl;
     break;
   }
+  // To trigger the sleeping UI loop.
+  screen_.PostEvent(Event::Custom);
 }
 
 Component UIManager::compose() {

@@ -1,8 +1,6 @@
-#include <algorithm>
 #include <ftxui/component/component.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <iostream>
-#include <iterator>
 #include <mutex>
 #include <ui/viewport.h>
 using namespace std;
@@ -52,12 +50,6 @@ void Viewport::update_pane(FileId file_id, const string new_data) {
   if (it != panes_.end()) {
     it->second.data.push_back(new_data);
   }
-
-  // cout << "Pane data ....." << endl;
-  // for (const auto &[id, pane] : panes_) {
-  //   std::copy(pane.data.begin(), pane.data.end(),
-  //             ostream_iterator<string>(cout, "\n"));
-  // }
 }
 
 Component Viewport::compose_pane(FileId file_id) {
@@ -69,15 +61,21 @@ Component Viewport::compose_pane(FileId file_id) {
 
   // The first argument is the component that should receive events.
   return Renderer(close_button, [this, close_button, file_id] {
-    Elements data_rows;
+    lock_guard lock(this->pane_update_mutex_);
     auto pane = get_pane(file_id);
-    if (pane != nullptr) {
+    Elements data_rows;
+    string heading;
+
+    if (pane == nullptr) {
+      data_rows.push_back(text("File no longer available"));
+    } else {
       for (const auto &line : pane->data) {
         data_rows.push_back(text(line));
       }
+      heading = pane->path.string();
     }
 
-    auto header = hbox({text(pane->path.string()), close_button->Render()});
+    auto header = hbox({text(heading), close_button->Render()});
 
     auto body = data_rows.empty() ? text("") | dim | center
                                   : vbox(data_rows) | yframe | flex;
@@ -87,20 +85,9 @@ Component Viewport::compose_pane(FileId file_id) {
 }
 
 const FilePane *Viewport::get_pane(FileId file_id) {
-  lock_guard lock(pane_update_mutex_);
+  // lock_guard lock(pane_update_mutex_);
   auto it = panes_.find(file_id);
   if (it != panes_.end())
     return &(it->second);
   return nullptr;
 }
-
-// Component Viewport::compose() {
-//   vector<Component> component_trees;
-//   for (auto &pane : panes_) {
-//     component_trees.push_back(compose_pane(pane.second));
-//   }
-//   // ToDo: Add the logic for checking max row and max col here, and create
-//   the
-//   // final container accordingly.
-//   return Container::Horizontal(component_trees);
-// }

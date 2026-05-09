@@ -22,7 +22,6 @@ public:
   Result<FileId, std::string> add_pane(std::filesystem::path);
   void remove_pane(FileId);
   void update_pane(FileId, const std::string);
-  ftxui::Component compose();
   ftxui::Element buildPaneGrid();
   ftxui::Component get_root_container() { return root_container_; };
 
