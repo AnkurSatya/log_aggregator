@@ -1,4 +1,6 @@
 #include <core/file_manager.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/spdlog.h>
 #include <ui/ui_manager.h>
 #include <utils/config.h>
 #include <utils/messenger.h>
@@ -19,6 +21,19 @@ void signal_handler(int signal) {
   shutdown_cv.notify_all();
 }
 
+optional<shared_ptr<spdlog::logger>> get_logger() {
+  try {
+    auto logger = spdlog::create<spdlog::sinks::basic_file_sink_mt>(
+        "logger", "log_aggregator.log");
+    logger->set_level(spdlog::level::debug);
+    logger->flush_on(spdlog::level::debug);
+    return std::move(logger);
+  } catch (const spdlog::spdlog_ex &error) {
+    cout << "Logger initialisation failed: " << error.what() << endl;
+    return nullptr;
+  }
+}
+
 // ToDo:
 //  1. Think more about the send flags:
 //  a. Either they should be none but this might lead to a thread being stuck.
@@ -28,6 +43,9 @@ void signal_handler(int signal) {
 // goes for FIleManager -> UIManager.
 
 int main() {
+  auto logger = get_logger().value();
+  logger->info("Test log");
+
   auto shared_zmq_ctx{make_shared<zmq::context_t>()};
 
   ZmqSocketConfig core_socket_cfg{
@@ -35,14 +53,14 @@ int main() {
       .socket_type = zmq::socket_type::pair,
       .send_flags = zmq::send_flags::none,
   };
-  FileManager file_manager{shared_zmq_ctx, core_socket_cfg};
+  FileManager file_manager{shared_zmq_ctx, core_socket_cfg, logger};
 
   ZmqSocketConfig ui_socket_cfg{
       .socket_addr = "inproc://log_aggregator.ui",
       .socket_type = zmq::socket_type::pair,
       .send_flags = zmq::send_flags::none,
   };
-  UIManager ui_manager(shared_zmq_ctx, ui_socket_cfg);
+  UIManager ui_manager(shared_zmq_ctx, ui_socket_cfg, logger);
 
   std::this_thread::sleep_for(std::chrono::seconds(3));
 

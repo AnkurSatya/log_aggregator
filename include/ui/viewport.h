@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <ftxui/component/component.hpp>
+#include <spdlog/spdlog.h>
 #include <utils/types.h>
 
 struct FilePane {
@@ -10,6 +11,7 @@ struct FilePane {
 
 class Viewport {
 public:
+  std::shared_ptr<spdlog::logger> logger;
   // This would be set by UIManager since this callback needs to communicate
   // with core::FileManager.
   Viewport(const Viewport &) = delete;
@@ -17,7 +19,7 @@ public:
   Viewport(Viewport &&) = delete;
   Viewport &operator=(Viewport &&) = delete;
 
-  Viewport();
+  Viewport(std::shared_ptr<spdlog::logger>);
   void set_callback_pane_close(std::function<void(FileId)>);
   Result<FileId, std::string> add_pane(std::filesystem::path);
   void remove_pane(FileId);
@@ -34,4 +36,5 @@ private:
   ftxui::Component root_container_ = ftxui::Container::Vertical({});
   ftxui::Component compose_pane(FileId);
   const FilePane *get_pane(FileId);
+  std::shared_ptr<spdlog::logger> logger_;
 };

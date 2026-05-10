@@ -1,6 +1,7 @@
 #pragma once
 #include <functional>
 #include <google/protobuf/message.h>
+#include <spdlog/spdlog.h>
 #include <thread>
 #include <utils/config.h>
 #include <zmq.hpp>
@@ -18,9 +19,11 @@ public:
   operator=(Messenger &) = delete; // Copying reassignment is not allowed
 
   Messenger(std::shared_ptr<zmq::context_t> ctx, ZmqSocketConfig recv_config,
-            MessageCallback recv_callback)
+            MessageCallback recv_callback,
+            std::shared_ptr<spdlog::logger> logger)
       : recv_config_{std::move(recv_config)}, ctx_{std::move(ctx)},
-        recv_sock_{zmq::socket_t(*ctx_, recv_config.socket_type)} {
+        recv_sock_{zmq::socket_t(*ctx_, recv_config.socket_type)},
+        logger_{std::move(logger->clone("Messenger"))} {
     recv_sock_.bind(recv_config_.socket_addr);
     recv_sock_.set(zmq::sockopt::linger, 0);
     start_receiver(recv_callback);
@@ -87,4 +90,6 @@ private:
   // Messenger object initialisation), otherwise send_sock_ would have to be
   // initialised during the instantiation of Messenger.
   std::unique_ptr<zmq::socket_t> send_sock_;
+
+  std::shared_ptr<spdlog::logger> logger_;
 };

@@ -52,6 +52,14 @@ protobuf_generate(
   PROTOS ${PROTO_FILES}
 )
 
+# set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+# set(SPDLOG_HEADER_ONLY ON CACHE BOOL "" FORCE)
+FetchContent_Declare(spdlog
+  GIT_REPOSITORY https://github.com/gabime/spdlog
+  GIT_TAG v2.x
+)
+FetchContent_MakeAvailable(spdlog)
+
 
 target_link_libraries(${EXE_NAME}
   PRIVATE ftxui::screen
@@ -60,6 +68,7 @@ target_link_libraries(${EXE_NAME}
   PRIVATE libzmq
   PRIVATE cppzmq
   PRIVATE ${Protobuf_LIBRARIES}
+  PRIVATE spdlog::spdlog
 )
 
 target_include_directories(${EXE_NAME} PRIVATE

@@ -9,9 +9,12 @@ using namespace ftxui;
 using namespace log_aggregator;
 
 UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
-                     ZmqSocketConfig recv_socket_config)
+                     ZmqSocketConfig recv_socket_config,
+                     shared_ptr<spdlog::logger> logger)
     : screen_{ftxui::ScreenInteractive::Fullscreen()},
-      messenger_{ctx, recv_socket_config, recv_socket_callback()} {
+      messenger_{ctx, recv_socket_config, recv_socket_callback(), logger},
+      logger_{std::move(logger->clone("UIManager"))},
+      viewport_(Viewport(logger)) {
   ctx_ = ctx;
   viewport_.set_callback_pane_close([&](FileId file_id) {
     viewport_.remove_pane(file_id);
@@ -114,7 +117,7 @@ void UIManager::run() {
   auto path = filesystem::path("/home/ankur/projects/log_aggregator/app.log");
   auto result = viewport_.add_pane(path);
   if (!result) {
-    cout << result.error() << endl;
+    logger_->error(result.error());
     exit(1);
   }
   FileId file_id1 = result.value();
@@ -123,7 +126,7 @@ void UIManager::run() {
   auto path2 = filesystem::path("/home/ankur/projects/log_aggregator/app1.log");
   auto result2 = viewport_.add_pane(path2);
   if (!result2) {
-    cout << result2.error() << endl;
+    logger_->error(result2.error());
     exit(1);
   }
   FileId file_id2 = result2.value();
@@ -132,4 +135,6 @@ void UIManager::run() {
   screen_.Loop(compose());
 }
 
-void UIManager::exit_application() { cout << "Exiting now ..." << endl; }
+void UIManager::exit_application() {
+  logger_->debug("UIManager exiting now ...");
+}

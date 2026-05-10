@@ -77,3 +77,9 @@ In FTXUI:
 
 ### Future features
 1. Option to search files using regex and then multiselect.
+
+
+## ToDo 09/05/26
+1. Check why sent data is not visible in the UI. -- DONE
+2. Implement a separate logger for print statements so that UI can be shown independently.
+3. Topic name(s) based subscription.

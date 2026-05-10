@@ -12,13 +12,16 @@ using namespace std;
 using namespace log_aggregator;
 namespace Events = native::Events;
 
-FileReader::FileReader(FileInfo file_info) noexcept
-    : file_info_(std::move(file_info)) {
+FileReader::FileReader(FileInfo file_info,
+                       shared_ptr<spdlog::logger> logger) noexcept
+    : file_info_(std::move(file_info)),
+      logger_{std::move(logger->clone("FileReader"))} {
   path_string_ = file_info_.file_path.string();
 }
 
 Result<FileReader, std::error_code>
-FileReader::open_file(const FileId file_id, const filesystem::path &file_path) {
+FileReader::open_file(const FileId file_id, const filesystem::path &file_path,
+                      shared_ptr<spdlog::logger> logger) {
   if (!filesystem::exists(file_path))
     return unexpected(make_error_code(errc::no_such_file_or_directory));
 
@@ -35,7 +38,6 @@ FileReader::open_file(const FileId file_id, const filesystem::path &file_path) {
   auto read_offset = jump_to_offset(fd.get(), 0, SEEK_END);
   if (!read_offset)
     return unexpected(read_offset.error());
-  // cout << format("Initial read offset {}", read_offset.value()) << endl;
 
   // // Inotify registration
   auto inotify_fd = register_with_inotify(IN_CLOEXEC | IN_NONBLOCK);
@@ -59,7 +61,7 @@ FileReader::open_file(const FileId file_id, const filesystem::path &file_path) {
                 .read_offset = read_offset.value(),
                 .inotify_fd = std::move(inotify_fd.value())};
 
-  return FileReader(std::move(info));
+  return FileReader(std::move(info), std::move(logger));
 }
 
 Result<struct stat, std::error_code> FileReader::get_fstat(int fd) {
@@ -153,7 +155,7 @@ Result<bool, Error> FileReader::is_file_truncated() {
   }
 
   if (updated_file_stat->st_size < file_info_.read_offset) {
-    cout << "File truncated" << endl;
+    logger_->debug("File truncated");
     return true;
   }
 
@@ -167,7 +169,7 @@ Result<bool, Error> FileReader::is_file_truncated() {
                         file_info_.file_stat.st_mtim.tv_nsec)));
 
   if (overwritten) {
-    cout << "File overwritten" << endl;
+    logger_->debug("File overwritten");
     return true;
   }
   return false;
@@ -214,7 +216,7 @@ Result<string, Error> FileReader::handle_file_modify() {
 }
 
 Result<EventHandlerStatus, Error> FileReader::handle_file_attribute_changed() {
-  cout << "File attributes changed" << endl;
+  logger_->debug("File attributes changed");
   auto updated_file_stat{get_fstat(fd())};
   if (!updated_file_stat) {
     return unexpected(Error{updated_file_stat.error(),
@@ -225,34 +227,11 @@ Result<EventHandlerStatus, Error> FileReader::handle_file_attribute_changed() {
   // reasons: 1. Inotify watch on the fd is still active; 2. Fd is still open
   // This is why delete event is being caught by attribute change.
   if (updated_file_stat.value().st_nlink == 0) {
-    cout << "File has been deleted" << endl;
+    logger_->debug("File has been deleted");
     return EventHandlerStatus::STOP;
   }
   return {};
 }
-
-// EventHandlerStatus FileReader::handle_file_rotated() {
-//   // Reopen the file
-//   if (fd() != -1) {
-//     close(fd());
-//   }
-//   file_fd_ = open_file(file_path_);
-//   if (file_fd_ == -1) {
-//     return EventHandlerStatus::STOP;
-//   }
-
-//   // Reset the Inotify file watch
-//   if (add_inotify_file_watch() == -1) {
-//     return EventHandlerStatus::STOP;
-//   }
-
-//   // Read all the data from the reopened file
-//   read_offset_ = 0;
-//   if (read_new_data() == -1) {
-//     return EventHandlerStatus::STOP;
-//   }
-//   return EventHandlerStatus::CONTINUE;
-// }
 
 void FileReader::run(std::stop_token token,
                      ThreadSafeQueue<FileProcessingEvent> &event_queue) {
@@ -331,15 +310,14 @@ void FileReader::run(std::stop_token token,
 
       if (event->mask & IN_CREATE) {
         if (event->name == file_info_.file_path.filename()) {
-          cout << format("File {} created",
-                         file_info_.file_path.filename().string())
-               << endl;
+          logger_->debug(format("File {} created",
+                                file_info_.file_path.filename().string()));
           // status = handle_file_rotated();
         }
       }
 
       if (event->mask & IN_MOVE_SELF) {
-        cout << "IN_MOVE_SELF event" << endl;
+        logger_->debug("IN_MOVE_SELF event");
       }
 
       // For detecting if file has been deleted.
@@ -364,7 +342,7 @@ void FileReader::run(std::stop_token token,
         }
       }
       if (event->mask & IN_DELETE || event->mask & IN_DELETE_SELF) {
-        cout << "File deleted. Exiting ..." << endl;
+        logger_->debug("File deleted. Exiting ...");
         return;
       }
     }

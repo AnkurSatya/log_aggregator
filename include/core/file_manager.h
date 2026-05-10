@@ -3,6 +3,7 @@
 #include <core/events.h>
 #include <core/file_reader.h>
 #include <shared_mutex>
+#include <spdlog/spdlog.h>
 #include <thread>
 #include <unordered_map>
 #include <utils/config.h>
@@ -11,7 +12,8 @@
 
 class FileManager {
 public:
-  FileManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
+  FileManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig,
+              std::shared_ptr<spdlog::logger>);
   void setup_message_sender(ZmqSocketConfig);
 
 private:
@@ -27,6 +29,7 @@ private:
   std::unordered_map<FileId, std::jthread> file_reader_threads_;
   // detached but tracked threads.
   std::vector<std::jthread> orphaned_threads;
+  std::shared_ptr<spdlog::logger> logger_;
 
   Result<void, log_aggregator ::Error> add_file(FileId file_id,
                                                 const std::filesystem::path &);

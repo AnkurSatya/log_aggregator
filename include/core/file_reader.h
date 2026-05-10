@@ -1,6 +1,7 @@
 #pragma once
 #include <core/events.h>
 #include <filesystem>
+#include <spdlog/spdlog.h>
 #include <stop_token>
 #include <sys/inotify.h>
 #include <sys/stat.h>
@@ -25,7 +26,7 @@ struct FileInfo {
 
 class FileReader {
 private:
-  explicit FileReader(FileInfo file_info) noexcept;
+  explicit FileReader(FileInfo, std::shared_ptr<spdlog::logger>) noexcept;
   int fd() const noexcept { return file_info_.fd.get(); }
 
   // For data file ---
@@ -35,6 +36,8 @@ private:
   // For Inotify ---
   // Mask for inotify events to be listend to.
   uint32_t mask_ = IN_ALL_EVENTS;
+
+  std::shared_ptr<spdlog::logger> logger_;
 
 public:
   static constexpr size_t BUF_CHUNK_SIZE = 4096;
@@ -49,7 +52,8 @@ public:
 
   // static Result<FileReader, std::error_code>
   static Result<FileReader, std::error_code>
-  open_file(const FileId file_id, const std::filesystem::path &file_path);
+  open_file(const FileId, const std::filesystem::path &,
+            std::shared_ptr<spdlog::logger>);
   static Result<struct stat, std::error_code> get_fstat(int fd);
   static Result<off_t, std::error_code> jump_to_offset(int fd, off_t offset,
                                                        int whence);

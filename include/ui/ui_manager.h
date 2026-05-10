@@ -2,6 +2,7 @@
 #include <core/file_manager.h>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
+#include <spdlog/spdlog.h>
 #include <ui/viewport.h>
 class UIManager {
 public:
@@ -12,7 +13,8 @@ public:
   UIManager &
   operator=(const UIManager &) = delete; // copying reassignment not allowwed
 
-  UIManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig);
+  UIManager(std::shared_ptr<zmq::context_t>, ZmqSocketConfig,
+            std::shared_ptr<spdlog::logger>);
   void setup_message_sender(ZmqSocketConfig);
   void run();
 
@@ -22,6 +24,7 @@ private:
   ftxui::ScreenInteractive screen_;
   Messenger messenger_;
   std::shared_ptr<zmq::context_t> ctx_;
+  std::shared_ptr<spdlog::logger> logger_;
 
   void request_file_monitoring(FileId, const std::string);
   void request_terminate_monitoring(FileId);

@@ -1,12 +1,12 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/dom/elements.hpp>
-#include <iostream>
 #include <mutex>
 #include <ui/viewport.h>
 using namespace std;
 using namespace ftxui;
 
-Viewport::Viewport() {}
+Viewport::Viewport(shared_ptr<spdlog::logger> logger)
+    : logger_{std::move(logger->clone("Viewport"))} {}
 void Viewport::set_callback_pane_close(function<void(FileId)> callback) {
   callback_pane_close_ = std::move(callback);
 }

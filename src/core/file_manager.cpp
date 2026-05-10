@@ -10,11 +10,14 @@ namespace NativeEvents = native::Events;
 // ToDo: Add topic names and pass it to messenger so that it only subscribes to
 // those topics.
 FileManager::FileManager(shared_ptr<zmq::context_t> ctx,
-                         ZmqSocketConfig recv_socket_config)
-    : messenger_{ctx, recv_socket_config, recv_socket_callback()} {
+                         ZmqSocketConfig recv_socket_config,
+                         shared_ptr<spdlog::logger> logger)
+    : messenger_{ctx, recv_socket_config, recv_socket_callback(), logger},
+      logger_{std::move(logger->clone("FileManager"))} {
   ctx_ = ctx;
   // Thread for processing events sent by File reader threads.
   event_processor_thread_ = jthread(&FileManager::process_events, this);
+  // auto logger = spdlog::get("logger");
 }
 
 void FileManager::setup_message_sender(ZmqSocketConfig send_socket_config) {
@@ -66,7 +69,7 @@ void FileManager::handle_file_commands(
 Result<void, Error> FileManager::add_file(FileId file_id,
                                           const std::filesystem::path &path) {
   filesystem::path file_path{path};
-  auto file_reader = FileReader::open_file(file_id, file_path);
+  auto file_reader = FileReader::open_file(file_id, file_path, logger_);
   if (!file_reader)
     return unexpected(Error{file_reader.error(), ""});
 
@@ -116,8 +119,6 @@ void FileManager::process_file(stop_token token, FileId id) {
   // stop_token to be interrupted because otherwise this lock would not get
   // acquired by a function which would set the stop_token and hence leading to
   // a deadlock.
-  // reader->run(token, event_queue_);
-  cout << "Thread closed" << endl;
   // The shared ptr to FileReader would be destroyed here.
 }
 
@@ -151,34 +152,29 @@ void FileManager::process_events(stop_token token) {
 }
 
 void FileManager::handle(const NativeEvents::InotifyError &event) {
-  cerr << format("File ID: {}, error code: {}", event.id,
-                 event.error_code.message())
-       << endl;
-  cerr << "Closing the File ..." << endl;
+  logger_->debug(format("Closing the File, ID: {}, error: {}", event.id,
+                        event.error_code.message()));
+
   remove_file(event.id);
   report_file_error(event.id, event.error_code.message());
 }
 
 void FileManager::handle(const NativeEvents::FileError &event) {
-  cout << "File Error event" << endl;
-  cout << format("Error: {}: {}", event.error.code.message(),
-                 event.error.message);
   // ToDo: Refactor it in the future: show the error to the user and let them
   // decide if they want to close the file.
-  cout << "Removing the file ..." << endl;
+  logger_->debug(format("Removing the file with id: {}, error: {}", event.id,
+                        event.error.code.message()));
   remove_file(event.id);
   report_file_error(event.id, event.error.code.message());
 }
 
 void FileManager::handle(const NativeEvents::FileClosed &event) {
-  cout << "File Closed event" << endl;
-  cout << "Removing the file ..." << endl;
+  logger_->debug(format("File closed, ID: {}", event.id));
   remove_file(event.id);
   report_file_closed(event.id);
 }
 
 void FileManager::handle(const NativeEvents::DataAvailable &event) {
-  // cout << "Data Available event: " << event.data << endl;
   report_data_available(event.id, std::move(event.data));
 }
 
