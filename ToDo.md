@@ -79,7 +79,24 @@ In FTXUI:
 1. Option to search files using regex and then multiselect.
 
 
+## UI - Control Panel
+1. Two major components: Searchable Menu and Selected Files Menu
+2. Searchable Menu
+  - Pressing spacebar in Searchable Menu should add it to the other Menu, but the file should still be visible in the Searchable Menu(less hassle and also useful if it is later removed from the other Menu).
+  - Make sure the file is only added once (use a set).
+  - If spacebar is pressed on a dir, notify the user that only a file can be added.
+3. Selected Files Menu
+  - Pressing spacebar in Selected Files Menu should remove the file.
+4. Save/cancel buttons below these menus to start the application.
+
 ## ToDo 09/05/26
 1. Check why sent data is not visible in the UI. -- DONE
-2. Implement a separate logger for print statements so that UI can be shown independently.
-3. Topic name(s) based subscription.
+2. Implement a separate logger for print statements so that UI can be shown independently. -- DONE
+
+## ToDo 16/05/26
+1. Topic name(s) based subscription.
+2. File selector on app startup. Make it generic so that it can be used to add a file later on as well.
+
+
+## Nice features to have
+1. Keyboard shortcut to move between searchable menu and Menu showing selected files.

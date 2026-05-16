@@ -7,7 +7,7 @@
 class UIManager {
 public:
   // Setting the constructors.
-  UIManager(UIManager &&other) = delete;            // Moving is allowed
+  UIManager(UIManager &&other) = delete;            // Moving not llowed
   UIManager &operator=(UIManager &&other) = delete; // reassignment not allowed
   UIManager(const UIManager &) = delete;            // copying not allowed
   UIManager &
