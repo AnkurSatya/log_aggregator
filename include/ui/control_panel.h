@@ -16,14 +16,21 @@ public:
 
   ftxui::Component get_root_container() { return root_container_; };
 
+  void set_callback_data_change(std::function<void()> callback) {
+    on_data_changed_ = std::move(callback);
+  }
+
 private:
   std::shared_ptr<spdlog::logger> logger_;
   ftxui::Component root_container_ = ftxui::Container::Vertical({});
 
+  // Stores the screen refresh trigger.
+  std::function<void()> on_data_changed_;
+
   void compose();
-  void compose_file_browser();
+  ftxui::Component compose_file_browser();
   void compose_selected_files_panel();
-  ftxui::Component create_searchable_menu();
+  ftxui::Component compose_searchable_menu();
 
   void callback_list_files();
   void callback_add_file();

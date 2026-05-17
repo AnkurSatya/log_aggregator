@@ -14,7 +14,7 @@ UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
     : screen_{ftxui::ScreenInteractive::Fullscreen()},
       messenger_{ctx, recv_socket_config, recv_socket_callback(), logger},
       logger_{std::move(logger->clone("UIManager"))},
-      viewport_(Viewport(logger)) {
+      viewport_(Viewport(logger)), control_panel_(ControlPanel(logger)) {
   ctx_ = ctx;
   viewport_.set_callback_pane_close([&](FileId file_id) {
     viewport_.remove_pane(file_id);
@@ -22,6 +22,9 @@ UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
     // Wakes up the render loop immediately
     screen_.Post(Event::Custom);
   });
+
+  control_panel_.set_callback_data_change(
+      [this]() { screen_.Post(Event::Custom); });
 }
 
 MessageCallback UIManager::recv_socket_callback() {
@@ -69,6 +72,16 @@ void UIManager::handle_file_events(
   }
   // To trigger the sleeping UI loop.
   screen_.PostEvent(Event::Custom);
+}
+
+Component UIManager::compose_control_panel() {
+  auto control_panel_root = control_panel_.get_root_container();
+
+  return Renderer(control_panel_root, [control_panel_root] {
+    auto header = hbox({text("FILE SELECTOR") | flex});
+    auto body = vbox({control_panel_root->Render() | flex});
+    return vbox({header, separator(), body}) | border | flex;
+  });
 }
 
 Component UIManager::compose() {
@@ -132,7 +145,8 @@ void UIManager::run() {
   FileId file_id2 = result2.value();
   request_file_monitoring(file_id2, path2.string());
 
-  screen_.Loop(compose());
+  // screen_.Loop(compose());
+  screen_.Loop(compose_control_panel());
 }
 
 void UIManager::exit_application() {

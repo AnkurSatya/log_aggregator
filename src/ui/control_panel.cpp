@@ -2,6 +2,8 @@
 #include <ui/control_panel.h>
 
 using namespace std;
+using namespace ftxui;
+using namespace spdlog;
 
 ControlPanel::ControlPanel(shared_ptr<spdlog::logger> logger)
     : logger_{std::move(logger)} {
@@ -9,6 +11,7 @@ ControlPanel::ControlPanel(shared_ptr<spdlog::logger> logger)
 }
 
 void ControlPanel::compose() {
+  root_container_->Add(compose_file_browser());
   // auto save_button auto close_button = Button("[x]", [this, file_id] {
   //   if (callback_pane_close_) {
   //     callback_pane_close_(file_id);
@@ -40,39 +43,61 @@ void ControlPanel::compose() {
   // });
 }
 
-void ControlPanel::compose_file_browser() {}
+Component ControlPanel::compose_file_browser() {
+  return compose_searchable_menu();
+}
 
-ftxui::Component ControlPanel::create_searchable_menu() {
+Component ControlPanel::compose_searchable_menu() {
   auto files = make_shared<vector<string>>();
   auto user_text = make_shared<string>();
 
   // Component for taking user input
-  ftxui::InputOption input_options;
+  InputOption input_options;
   input_options.on_change = [files, user_text, this]() {
     auto files_found = scan_directory(*user_text);
     if (files_found) {
+      debug("Files found");
       *files = files_found.value();
     } else {
+      debug("Files not found");
       *files = vector<string>{std::move(files_found.error().message)};
+    }
+
+    // Notify the ftxui::Screen to do a refresh
+    if (on_data_changed_) {
+      on_data_changed_();
+    } else {
+      spdlog::debug("No refresh trigget set.");
     }
   };
 
-  ftxui::Component input_field = ftxui::Input(
-      *user_text, "Type to search and press spacebar to select a file",
-      input_options);
+  auto input_field = Input(user_text.get(),
+                           "Type to search and press spacebar to select a file",
+                           input_options);
 
   // Component for displaying files available based on user input.
-  auto menu = ftxui::Menu(*files, 0);
+  MenuOption menu_options;
+  // IMPORTANT: DO NOT pass *files as an argument since that would pass a
+  // reference to the underlying vector and Menu has a constructor which when
+  // receives this, creates a copy of the vector and hence any future changes in
+  // the vector would not be reflected.
+  menu_options.entries = files.get();
+  menu_options.selected = 0;
+  auto menu = Menu(menu_options);
 
-  auto container = ftxui::Container::Vertical({input_field, menu});
+  auto container = Container::Vertical({input_field, menu});
+
+  input_field->TakeFocus();
+
+  return Renderer(container, [menu, input_field] {
+    return vbox({input_field->Render(), separator(), menu->Render() | frame}) |
+           border;
+  });
 
   // ToDo:
   // 1. Test rendering of Searchable_menu and test the rendering by typing a
   // path.
   // 2. Add keyboard events to menu, spacebar to select
-  // 2.
-
-  return container;
 }
 
 Result<std::vector<string>, log_aggregator::Error>

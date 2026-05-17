@@ -3,6 +3,7 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <spdlog/spdlog.h>
+#include <ui/control_panel.h>
 #include <ui/viewport.h>
 class UIManager {
 public:
@@ -20,6 +21,7 @@ public:
 
 private:
   Viewport viewport_;
+  ControlPanel control_panel_;
   ftxui::Component root_container = ftxui::Container::Horizontal({});
   ftxui::ScreenInteractive screen_;
   Messenger messenger_;
@@ -31,5 +33,6 @@ private:
   void handle_file_events(log_aggregator::schema::FileEvents);
   MessageCallback recv_socket_callback();
   ftxui::Component compose();
+  ftxui::Component compose_control_panel();
   void exit_application();
 };

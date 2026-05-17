@@ -44,7 +44,6 @@ optional<shared_ptr<spdlog::logger>> get_logger() {
 
 int main() {
   auto logger = get_logger().value();
-  logger->info("Test log");
 
   auto shared_zmq_ctx{make_shared<zmq::context_t>()};
 
