@@ -21,7 +21,7 @@ public:
 
 private:
   Viewport viewport_;
-  ControlPanel control_panel_;
+  ControlPanelView control_panel_view_;
   ftxui::Component root_container = ftxui::Container::Horizontal({});
   ftxui::ScreenInteractive screen_;
   Messenger messenger_;

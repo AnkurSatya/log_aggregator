@@ -14,7 +14,8 @@ UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
     : screen_{ftxui::ScreenInteractive::Fullscreen()},
       messenger_{ctx, recv_socket_config, recv_socket_callback(), logger},
       logger_{std::move(logger->clone("UIManager"))},
-      viewport_(Viewport(logger)), control_panel_(ControlPanel(logger)) {
+      viewport_(Viewport(logger)),
+      control_panel_view_(ControlPanelView(logger)) {
   ctx_ = ctx;
   viewport_.set_callback_pane_close([&](FileId file_id) {
     viewport_.remove_pane(file_id);
@@ -23,7 +24,7 @@ UIManager::UIManager(shared_ptr<zmq::context_t> ctx,
     screen_.Post(Event::Custom);
   });
 
-  control_panel_.set_callback_data_change(
+  control_panel_view_.set_callback_data_change(
       [this]() { screen_.Post(Event::Custom); });
 }
 
@@ -75,7 +76,7 @@ void UIManager::handle_file_events(
 }
 
 Component UIManager::compose_control_panel() {
-  auto control_panel_root = control_panel_.get_root_container();
+  auto control_panel_root = control_panel_view_.get_root_container();
 
   return Renderer(control_panel_root, [control_panel_root] {
     auto header = hbox({text("FILE SELECTOR") | flex});

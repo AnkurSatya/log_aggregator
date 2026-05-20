@@ -9,6 +9,7 @@ add_executable(${EXE_NAME}
     src/ui/ui_manager.cpp
     src/ui/control_panel.cpp
     src/ui/viewport.cpp
+    src/utils/filesystem_utils.cpp
 )
 
 

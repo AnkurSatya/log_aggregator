@@ -96,6 +96,8 @@ In FTXUI:
 ## ToDo 16/05/26
 1. Topic name(s) based subscription.
 2. File selector on app startup. Make it generic so that it can be used to add a file later on as well.
+3. Split ControlPanel into model and view -- DONE
+4. Split Viewport and UIManager into model and view as well.
 
 
 ## Nice features to have
