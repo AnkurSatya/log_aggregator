@@ -100,3 +100,4 @@ In FTXUI:
 
 ## Nice features to have
 1. Keyboard shortcut to move between searchable menu and Menu showing selected files.
+2. Regex based directory scan so that user gets suggestions what directories are available.
